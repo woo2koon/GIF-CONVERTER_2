@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>GIF Converter</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<script type="text/javascript" src="/eel.js"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Pretendard', 'Inter', 'sans-serif'],
+                        manrope: ['Pretendard', 'Inter', 'sans-serif'],
+                    },
+                    "colors": {
+                        "surface-container-low": "#eef1f3",
+                        "secondary-container": "#d6cbff",
+                        "secondary": "#604ab3",
+                        "error-dim": "#a70138",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-bright": "#f5f7f9",
+                        "on-error": "#ffefef",
+                        "error-container": "#f74b6d",
+                        "error": "#b41340",
+                        "on-tertiary": "#ffeef4",
+                        "primary-container": "#9596ff",
+                        "on-primary-fixed": "#000000",
+                        "surface-dim": "#d0d5d8",
+                        "inverse-on-surface": "#9a9d9f",
+                        "surface-tint": "#4340e6",
+                        "primary": "#4340e6",
+                        "surface-container": "#e5e8eb",
+                        "on-background": "#2c2f31",
+                        "tertiary-fixed": "#fc8bce",
+                        "surface": "#f5f7f9",
+                        "on-primary-container": "#0d0080",
+                        "secondary-dim": "#543da6",
+                        "tertiary-dim": "#882a68",
+                        "on-surface-variant": "#595c5e",
+                        "inverse-surface": "#0b0f10",
+                        "secondary-fixed-dim": "#c9bbff",
+                        "secondary-fixed": "#d6cbff",
+                        "primary-fixed": "#9596ff",
+                        "inverse-primary": "#8283ff",
+                        "primary-dim": "#362fdb",
+                        "on-secondary": "#f6f0ff",
+                        "on-secondary-fixed-variant": "#553ea7",
+                        "outline": "#747779",
+                        "surface-container-highest": "#d9dde0",
+                        "on-primary": "#f4f1ff",
+                        "on-tertiary-fixed": "#350026",
+                        "tertiary-fixed-dim": "#ec7ec0",
+                        "surface-container-high": "#dfe3e6",
+                        "tertiary": "#973775",
+                        "on-tertiary-fixed-variant": "#6c1050",
+                        "on-secondary-container": "#4b349d",
+                        "background": "#f5f7f9",
+                        "outline-variant": "#abadaf",
+                        "tertiary-container": "#fc8bce",
+                        "on-error-container": "#510017",
+                        "on-tertiary-container": "#600247",
+                        "on-primary-fixed-variant": "#13009c",
+                        "on-secondary-fixed": "#381c89",
+                        "on-surface": "#2c2f31",
+                        "surface-variant": "#d9dde0",
+                        "primary-fixed-dim": "#8586ff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "fontFamily": {
+                        "headline": ["Manrope"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        .font-manrope { font-family: 'Manrope', sans-serif; }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(20px);
+        }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #d9dde0; border-radius: 10px; }
+    </style>
+</head>
+<body class="bg-surface text-on-surface h-screen flex flex-col overflow-hidden">
+
+<div class="flex-1 flex overflow-hidden">
+<!-- SideNavBar / Left Column: File Library -->
+<aside class="w-80 bg-slate-100 flex flex-col gap-4 p-4 border-r border-slate-200/10 font-manrope font-medium text-sm">
+<div class="flex items-center justify-between mb-2">
+<h2 class="text-on-surface-variant font-bold uppercase tracking-widest text-sm">라이브러리</h2>
+<div class="flex items-center gap-2 ml-4">
+<input class="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer" id="select-all-lib" type="checkbox"/>
+<label class="text-xs font-bold text-on-surface-variant uppercase cursor-pointer" for="select-all-lib">전체 선택</label>
+</div>
+<input type="file" id="video-upload" accept="video/mp4,video/*" class="hidden" multiple />
+<button id="add-video-btn" class="p-1 hover:bg-slate-200 rounded transition-colors">
+<span class="material-symbols-outlined text-sm" data-icon="add">add</span>
+</button>
+</div>
+<div id="library-list" class="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-3">
+<!-- Files will be dynamically injected here -->
+</div>
+
+</aside>
+<!-- Center Column: Preview Player -->
+<main class="flex-1 bg-surface flex flex-col p-8 overflow-hidden">
+<div class="flex items-center justify-between mb-6">
+<div>
+<h1 id="header-filename" class="font-manrope text-2xl font-extrabold tracking-tight text-on-surface truncate max-w-[400px]">파일을 선택해주세요</h1>
+<p id="header-resolution" class="text-on-surface-variant text-sm">-</p>
+</div>
+</div>
+<!-- Modern Video Player Area -->
+<div class="flex-1 flex flex-col items-center justify-center relative">
+<div class="w-full aspect-video bg-black rounded-xl shadow-2xl overflow-hidden relative group flex items-center justify-center">
+<video id="main-player" class="w-full h-full object-contain hidden" controls></video>
+<div id="placeholder-msg" class="text-on-surface-variant font-medium text-white">비디오를 선택하거나 업로드하세요</div>
+</div>
+<!-- Timeline Scrubber -->
+<div class="w-full mt-8 bg-surface-container-low p-6 rounded-xl">
+<div class="flex justify-between items-center mb-4">
+    <div class="flex items-center gap-4">
+        <span class="text-sm font-bold text-on-surface-variant font-manrope">타임라인 구간 자르기</span>
+        <button id="trim-reset-btn" class="text-xs bg-slate-200 hover:bg-slate-300 px-2 py-1 rounded font-bold transition-colors">초기화</button>
+    </div>
+    <div class="flex items-center gap-2">
+        <div class="flex bg-slate-200/50 rounded-lg p-1 gap-1">
+            <button id="zoom-out-btn" class="w-6 h-6 flex items-center justify-center hover:bg-white rounded transition-all">
+                <span class="material-symbols-outlined text-[16px]">zoom_out</span>
+            </button>
+            <button id="zoom-in-btn" class="w-6 h-6 flex items-center justify-center hover:bg-white rounded transition-all">
+                <span class="material-symbols-outlined text-[16px]">zoom_in</span>
+            </button>
+        </div>
+        <div class="flex gap-3 text-xs font-bold text-indigo-600">
+            <span class="bg-indigo-600/10 px-2 py-1 rounded" id="trim-start-display">시작: 00:00.0</span>
+            <span class="bg-indigo-600/10 px-2 py-1 rounded" id="trim-end-display">종료: 00:00.0</span>
+        </div>
+    </div>
+</div>
+<div id="timeline-container" class="overflow-x-auto custom-scrollbar rounded-lg bg-surface-container">
+    <div id="timeline-track" class="h-16 w-full relative bg-surface-container flex items-center cursor-pointer min-w-full" style="width: 100%;">
+        <!-- Filmstrip Container -->
+        <div id="filmstrip-container" class="absolute inset-0 flex pointer-events-none opacity-50 grayscale"></div>
+        <!-- Selection Area Highlight -->
+        <div id="timeline-selection" class="absolute inset-y-0 bg-indigo-600/20 border-x-4 border-indigo-600 z-20 pointer-events-none"></div>
+        
+        <!-- Handles -->
+        <div id="handle-left" class="absolute inset-y-0 w-3 bg-indigo-600 cursor-ew-resize z-30 flex items-center justify-center">
+            <div class="w-1 h-6 bg-white/50 rounded-full"></div>
+        </div>
+        <div id="handle-right" class="absolute inset-y-0 w-3 bg-indigo-600 cursor-ew-resize z-30 flex items-center justify-center">
+            <div class="w-1 h-6 bg-white/50 rounded-full"></div>
+        </div>
+        
+        <!-- Current Playhead -->
+        <div id="playhead" class="absolute inset-y-0 w-0.5 bg-white shadow-lg z-40 pointer-events-none"></div>
+    </div>
+</div>
+</div>
+</div>
+</main>
+<!-- Right Column: Output Settings -->
+<aside class="w-80 bg-surface-container-low p-6 flex flex-col gap-8 overflow-y-auto custom-scrollbar">
+<h2 class="font-manrope text-lg font-bold text-on-surface">출력 설정</h2>
+
+<!-- Resolution -->
+<div class="space-y-3">
+<label class="block text-sm font-bold text-on-surface-variant uppercase tracking-wider font-manrope">해상도</label>
+<div class="relative group">
+<select id="res-select" class="w-full bg-surface-container-lowest !bg-none border-none rounded-xl py-3 px-4 text-base font-medium focus:ring-2 focus:ring-primary appearance-none cursor-pointer shadow-sm">
+<option>원본</option>
+<option selected="">중간 (720p)</option>
+<option>작게 (480p)</option>
+</select>
+<span class="material-symbols-outlined absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" data-icon="expand_more">expand_more</span>
+</div>
+</div>
+<!-- Color Depth -->
+<div class="space-y-3">
+<label class="block text-sm font-bold text-on-surface-variant uppercase tracking-wider font-manrope">색상 수</label>
+<div class="relative group">
+<select id="colors-select" class="w-full bg-surface-container-lowest !bg-none border-none rounded-xl py-3 px-4 text-base font-medium focus:ring-2 focus:ring-primary appearance-none cursor-pointer shadow-sm">
+<option value="256" selected="">256색 (고화질)</option>
+<option value="128">128색 (일반)</option>
+<option value="64">64색 (저용량)</option>
+<option value="32">32색 (초저용량)</option>
+</select>
+<span class="material-symbols-outlined absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400" data-icon="palette">palette</span>
+</div>
+</div>
+<!-- Frame Rate -->
+<div class="space-y-4">
+<div class="flex justify-between items-center">
+<label class="text-sm font-bold text-on-surface-variant uppercase tracking-wider font-manrope">프레임 레이트</label>
+<span id="fps-display" class="text-sm font-bold text-primary font-manrope">24 FPS</span>
+</div>
+<input id="fps-slider" class="w-full h-2 bg-surface-container-highest rounded-full appearance-none cursor-pointer accent-primary" max="30" min="5" type="range" value="24"/>
+<div class="relative h-4 text-[10px] text-slate-400 font-bold px-1 mt-1">
+<span class="absolute left-0 -translate-x-1/2">5</span>
+<span class="absolute left-[20%] -translate-x-1/2">10</span>
+<span class="absolute left-[40%] -translate-x-1/2">15</span>
+<span class="absolute left-[60%] -translate-x-1/2">20</span>
+<span class="absolute left-[80%] -translate-x-1/2">25</span>
+<span class="absolute left-full -translate-x-1/2">30</span>
+</div>
+</div>
+<!-- Optimization Toggles (Extra utility for UI density) -->
+<div class="bg-surface-container-lowest p-4 rounded-xl space-y-4 shadow-sm">
+<div class="flex items-center justify-between">
+<div class="flex flex-col">
+<span class="text-sm font-bold text-on-surface">반복 재생</span>
+<span class="text-xs text-on-surface-variant">애니메이션 연속 재생</span>
+</div>
+<div id="loop-toggle" data-active="true" class="w-12 h-6 bg-primary rounded-full relative p-1 cursor-pointer transition-colors" onclick="this.classList.toggle('bg-primary'); this.classList.toggle('bg-slate-300'); const circle = this.children[0]; circle.classList.toggle('translate-x-6'); this.dataset.active = this.classList.contains('bg-primary') ? 'true' : 'false'">
+<div class="w-4 h-4 bg-white rounded-full transition-transform pointer-events-none translate-x-6"></div>
+</div>
+</div>
+<div class="flex items-center justify-between">
+<div class="flex flex-col">
+<span class="text-sm font-bold text-on-surface">디더링</span>
+<span class="text-xs text-on-surface-variant">부드러운 그라데이션</span>
+</div>
+<div id="dither-toggle" data-active="false" class="w-12 h-6 bg-slate-300 rounded-full relative p-1 cursor-pointer transition-colors" onclick="this.classList.toggle('bg-primary'); this.classList.toggle('bg-slate-300'); const circle = this.children[0]; circle.classList.toggle('translate-x-6'); this.dataset.active = this.classList.contains('bg-primary') ? 'true' : 'false'">
+<div class="w-4 h-4 bg-white rounded-full transition-transform pointer-events-none"></div>
+</div>
+</div>
+</div>
+<!-- Main CTA -->
+<div class="mt-auto pt-6 border-t border-slate-200/20">
+<button id="convert-btn" class="w-full bg-gradient-to-r from-primary to-primary-container text-white py-5 rounded-xl font-manrope font-extrabold text-xl uppercase tracking-widest shadow-lg shadow-primary/30 hover:shadow-primary/50 transition-all flex items-center justify-center gap-2 group">GIF로 변환</button>
+<p id="status-msg" class="text-xs text-center text-on-surface-variant mt-4 font-manrope">대기 중...</p>
+</div>
+</aside>
+</div>
+<script src="app.js"></script>
+</body></html>
