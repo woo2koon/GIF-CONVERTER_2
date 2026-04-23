@@ -22,6 +22,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const fpsSlider = document.getElementById('fps-slider');
     const fpsDisplay = document.getElementById('fps-display');
     const resSelect = document.getElementById('res-select');
+    const colorsDropdown = document.getElementById('colors-dropdown');
+    const colorsSelected = document.getElementById('colors-selected');
+    const loopToggle = document.getElementById('loop-toggle');
+    const ditherToggle = document.getElementById('dither-toggle');
+    const convertSplitBtn = document.getElementById('convert-split-btn');
+    const batchMenu = document.getElementById('batch-menu');
+    const batchConvertOverrideBtn = document.getElementById('batch-convert-override-btn');
 
     // Timeline Elements
     const timelineArea = document.getElementById('timeline-area');
@@ -109,11 +116,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const aspectRatioLock = document.getElementById('aspect-ratio-lock');
 
     resDropdown.addEventListener('change', (e) => {
-        if (e.detail.value === "직접 설정") {
+        const val = e.detail.value;
+        if (selectedFileObj) selectedFileObj.resolution = val;
+        
+        if (val === "직접 설정") {
             customResContainer.classList.remove('hidden');
             if (selectedFileObj) {
-                customWidthInput.value = selectedFileObj.width;
-                customHeightInput.value = selectedFileObj.height;
+                customWidthInput.value = selectedFileObj.customWidth || selectedFileObj.width;
+                customHeightInput.value = selectedFileObj.customHeight || selectedFileObj.height;
             }
         } else {
             customResContainer.classList.add('hidden');
@@ -121,23 +131,87 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     customWidthInput.addEventListener('input', () => {
+        const val = parseInt(customWidthInput.value);
+        if (selectedFileObj) selectedFileObj.customWidth = val;
+        
         if (aspectRatioLock.checked && selectedFileObj) {
             const ratio = selectedFileObj.width / selectedFileObj.height;
-            customHeightInput.value = Math.round(customWidthInput.value / ratio);
+            customHeightInput.value = Math.round(val / ratio);
+            selectedFileObj.customHeight = parseInt(customHeightInput.value);
         }
     });
 
     customHeightInput.addEventListener('input', () => {
+        const val = parseInt(customHeightInput.value);
+        if (selectedFileObj) selectedFileObj.customHeight = val;
+        
         if (aspectRatioLock.checked && selectedFileObj) {
             const ratio = selectedFileObj.width / selectedFileObj.height;
-            customWidthInput.value = Math.round(customHeightInput.value * ratio);
+            customWidthInput.value = Math.round(val * ratio);
+            selectedFileObj.customWidth = parseInt(customWidthInput.value);
         }
+    });
+
+    aspectRatioLock.addEventListener('change', () => {
+        if (selectedFileObj) selectedFileObj.aspectRatioLock = aspectRatioLock.checked;
+    });
+
+    colorsDropdown.addEventListener('change', (e) => {
+        if (selectedFileObj) selectedFileObj.numColors = parseInt(e.detail.value);
     });
 
     // Update FPS display
     fpsSlider.addEventListener('input', (e) => {
-        fpsDisplay.textContent = `${e.target.value} FPS`;
+        const val = parseInt(e.target.value);
+        fpsDisplay.textContent = `${val} FPS`;
+        if (selectedFileObj) selectedFileObj.fps = val;
     });
+
+    function updateToggleUI(toggle, active) {
+        toggle.dataset.active = active ? 'true' : 'false';
+        const circle = toggle.children[0];
+        if (active) {
+            toggle.classList.add('bg-primary');
+            toggle.classList.remove('bg-slate-300');
+            circle.classList.add('translate-x-5');
+        } else {
+            toggle.classList.remove('bg-primary');
+            toggle.classList.add('bg-slate-300');
+            circle.classList.remove('translate-x-5');
+        }
+    }
+
+    loopToggle.addEventListener('click', () => {
+        const active = loopToggle.dataset.active !== 'true';
+        updateToggleUI(loopToggle, active);
+        if (selectedFileObj) selectedFileObj.loopPlayback = active;
+    });
+
+    ditherToggle.addEventListener('click', () => {
+        const active = ditherToggle.dataset.active !== 'true';
+        updateToggleUI(ditherToggle, active);
+        if (selectedFileObj) selectedFileObj.useDither = active;
+    });
+
+    function updateBatchButtonState() {
+        const checkedCount = document.querySelectorAll('.lib-checkbox:checked').length;
+        const isBatch = checkedCount >= 2;
+        const splitPart = document.getElementById('split-part');
+        const convertBtn = document.getElementById('convert-btn');
+        
+        if (isBatch) {
+            splitPart.classList.remove('hidden');
+            splitPart.classList.add('flex');
+            convertBtn.classList.remove('rounded-xl');
+            convertBtn.classList.add('rounded-l-xl');
+        } else {
+            splitPart.classList.add('hidden');
+            splitPart.classList.remove('flex');
+            convertBtn.classList.add('rounded-xl');
+            convertBtn.classList.remove('rounded-l-xl');
+            batchMenu.classList.add('hidden');
+        }
+    }
 
     const selectAllLib = document.getElementById('select-all-lib');
     selectAllLib.addEventListener('change', (e) => {
@@ -145,6 +219,25 @@ document.addEventListener('DOMContentLoaded', () => {
         checkboxes.forEach(cb => {
             cb.checked = e.target.checked;
         });
+        updateBatchButtonState();
+    });
+
+    // Split Button logic
+    convertSplitBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const checkedCount = document.querySelectorAll('.lib-checkbox:checked').length;
+        if (checkedCount < 2) return;
+        batchMenu.classList.toggle('hidden');
+    });
+
+    document.addEventListener('click', () => {
+        batchMenu.classList.add('hidden');
+    });
+
+    batchConvertOverrideBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        batchMenu.classList.add('hidden');
+        runConversion(true);
     });
 
     let uploadedFiles = [];
@@ -173,7 +266,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     path: res.path,
                     objectUrl: objectUrl,
                     size: res.size,
-                    fps: res.fps || 30.0,
+                    fps: parseInt(fpsSlider.value) || 24,
                     duration: res.duration || 0,
                     width: res.width || 1280,
                     height: res.height || 720,
@@ -181,7 +274,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     trimEnd: res.duration || 0,
                     currentTime: 0,
                     filmstrip: [],
-                    aspectRatio: res.width / res.height || 16 / 9
+                    aspectRatio: res.width / res.height || 16 / 9,
+                    // Current UI settings as defaults for this new file
+                    resolution: document.querySelector('#res-dropdown .dropdown-item.active').dataset.value || "중간 (720p)",
+                    numColors: parseInt(document.querySelector('#colors-dropdown .dropdown-item.active').dataset.value) || 256,
+                    useDither: ditherToggle.dataset.active === 'true',
+                    loopPlayback: loopToggle.dataset.active === 'true',
+                    aspectRatioLock: aspectRatioLock.checked,
+                    customWidth: parseInt(customWidthInput.value) || res.width,
+                    customHeight: parseInt(customHeightInput.value) || res.height
                 };
                 uploadedFiles.push(fileObj);
                 addLibraryItem(fileObj);
@@ -299,7 +400,52 @@ document.addEventListener('DOMContentLoaded', () => {
             placeholderMsg.classList.add('hidden');
             const tArea = document.getElementById('timeline-area');
             if (tArea) tArea.classList.remove('hidden');
+            
+            syncUIToFile(fileObj);
         }, 50);
+    }
+
+    function syncUIToFile(fileObj) {
+        if (!fileObj) return;
+
+        // 1. FPS
+        fpsSlider.value = fileObj.fps || 24;
+        fpsDisplay.textContent = `${fpsSlider.value} FPS`;
+
+        // 2. Resolution Dropdown
+        const resValue = fileObj.resolution || "중간 (720p)";
+        const resItems = document.querySelectorAll('#res-dropdown .dropdown-item');
+        resItems.forEach(item => {
+            if (item.dataset.value === resValue) {
+                resItems.forEach(i => i.classList.remove('active'));
+                item.classList.add('active');
+                document.getElementById('res-selected').textContent = item.textContent;
+            }
+        });
+        
+        if (resValue === "직접 설정") {
+            customWidthInput.value = fileObj.customWidth || fileObj.width;
+            customHeightInput.value = fileObj.customHeight || fileObj.height;
+            aspectRatioLock.checked = fileObj.aspectRatioLock !== undefined ? fileObj.aspectRatioLock : true;
+            customResContainer.classList.remove('hidden');
+        } else {
+            customResContainer.classList.add('hidden');
+        }
+
+        // 3. Color Depth Dropdown
+        const colorValue = fileObj.numColors || 256;
+        const colorItems = document.querySelectorAll('#colors-dropdown .dropdown-item');
+        colorItems.forEach(item => {
+            if (parseInt(item.dataset.value) === colorValue) {
+                colorItems.forEach(i => i.classList.remove('active'));
+                item.classList.add('active');
+                colorsSelected.textContent = item.textContent;
+            }
+        });
+
+        // 4. Toggles
+        updateToggleUI(loopToggle, fileObj.loopPlayback !== undefined ? fileObj.loopPlayback : true);
+        updateToggleUI(ditherToggle, fileObj.useDither !== undefined ? fileObj.useDither : false);
     }
 
     mainPlayer.addEventListener('click', togglePlayPause);
@@ -591,6 +737,8 @@ document.addEventListener('DOMContentLoaded', () => {
         mainPlayer.pause();
     });
 
+    let scrubAnimationFrame = null;
+
     document.addEventListener('mousemove', (e) => {
         if (!selectedFileObj) return;
         if (!isScrubbing && !isDraggingLeft && !isDraggingRight) return;
@@ -603,25 +751,34 @@ document.addEventListener('DOMContentLoaded', () => {
         
         lastTargetTime = time; // 목표 시간 기록
         if (seekLockTimeout) clearTimeout(seekLockTimeout);
-        seekLockTimeout = setTimeout(() => { lastTargetTime = -1; }, 500); // 0.5초 후 잠금 해제
+        seekLockTimeout = setTimeout(() => { lastTargetTime = -1; }, 500);
 
+        // UI는 즉시 업데이트 (반응성 최우선)
         if (isScrubbing) {
-            mainPlayer.currentTime = time;
-            // 스크러빙 시 즉시 업데이트
             updatePlayheadUI(time);
         } else if (isDraggingLeft) {
-            selectedFileObj.trimStart = Math.max(0, Math.min(time, selectedFileObj.trimEnd - 0.1));
-            mainPlayer.currentTime = selectedFileObj.trimStart;
+            selectedFileObj.trimStart = Math.min(time, selectedFileObj.trimEnd - 0.1);
             updateTrimUI();
             updatePlayheadUI(selectedFileObj.trimStart);
         } else if (isDraggingRight) {
-            selectedFileObj.trimEnd = Math.min(selectedFileObj.duration, Math.max(time, selectedFileObj.trimStart + 0.1));
-            mainPlayer.currentTime = selectedFileObj.trimEnd;
+            selectedFileObj.trimEnd = Math.max(time, selectedFileObj.trimStart + 0.1);
             updateTrimUI();
             updatePlayheadUI(selectedFileObj.trimEnd);
         }
 
-        // updateTimelineUI(); // Redundant now
+        // 비디오 탐색은 rAF를 통해 최적화된 속도로 수행
+        if (!scrubAnimationFrame) {
+            scrubAnimationFrame = requestAnimationFrame(() => {
+                if (isScrubbing) {
+                    mainPlayer.currentTime = lastTargetTime;
+                } else if (isDraggingLeft) {
+                    mainPlayer.currentTime = selectedFileObj.trimStart;
+                } else if (isDraggingRight) {
+                    mainPlayer.currentTime = selectedFileObj.trimEnd;
+                }
+                scrubAnimationFrame = null;
+            });
+        }
     });
 
     document.addEventListener('mouseup', () => {
@@ -703,29 +860,85 @@ document.addEventListener('DOMContentLoaded', () => {
         const index = uploadedFiles.indexOf(fileObj);
 
         itemDiv.innerHTML = `
-            <div class="flex gap-3">
+            <div class="flex gap-3 items-center">
                 <div class="flex items-center">
                     <input type="checkbox" class="lib-checkbox w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer" data-index="${index}" />
                 </div>
-                <div class="flex flex-col justify-center overflow-hidden">
+                <div class="flex-1 flex flex-col justify-center overflow-hidden">
                     <span class="truncate font-semibold text-on-surface">${fileObj.name}</span>
                     <span class="text-xs text-slate-500">${sizeMb} MB</span>
                 </div>
+                <!-- Delete Button (Visible on Hover) -->
+                <button class="delete-file-btn opacity-0 group-hover:opacity-100 p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all outline-none">
+                    <span class="material-symbols-outlined text-xl">delete</span>
+                </button>
             </div>
         `;
 
         const checkbox = itemDiv.querySelector('.lib-checkbox');
         checkbox.addEventListener('click', (e) => {
             e.stopPropagation();
+            updateBatchButtonState();
+        });
+
+        const deleteBtn = itemDiv.querySelector('.delete-file-btn');
+        deleteBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            
+            // 1. 데이터 배열에서 제거
+            const idx = uploadedFiles.indexOf(fileObj);
+            if (idx > -1) {
+                uploadedFiles.splice(idx, 1);
+            }
+
+            // 2. DOM에서 제거
+            itemDiv.remove();
+
+            // 3. 인덱스 데이터 속성 재정렬 (체크박스 매칭 유지용)
+            document.querySelectorAll('.lib-checkbox').forEach((cb, i) => {
+                cb.dataset.index = i;
+            });
+
+            // 4. 삭제한 파일이 현재 선택된 파일인 경우 처리
+            if (selectedFileObj === fileObj) {
+                if (uploadedFiles.length > 0) {
+                    selectVideo(uploadedFiles[0]);
+                } else {
+                    selectedFileObj = null;
+                    currentVideoPath = null;
+                    mainPlayer.pause();
+                    mainPlayer.src = "";
+                    mainPlayer.classList.add('hidden');
+                    placeholderMsg.classList.remove('hidden');
+                    document.getElementById('header-filename').textContent = "비디오를 선택하세요";
+                    document.getElementById('header-resolution').textContent = "영상 정보가 여기에 표시됩니다";
+                    
+                    // 타임라인 숨기지 않고 초기화만 수행
+                    trimStartDisplay.textContent = "시작: 00:00:00";
+                    trimEndDisplay.textContent = "종료: 00:00:00";
+                    currentTimeDisplay.textContent = "00:00:00";
+                    document.getElementById('total-time-display').textContent = "00:00:00";
+                    handleLeft.style.left = "0%";
+                    handleRight.style.left = "100%";
+                    playhead.style.transform = "translateX(0)";
+                    const mLeft = document.getElementById('mask-left');
+                    const mRight = document.getElementById('mask-right');
+                    if (mLeft) mLeft.style.width = "0%";
+                    if (mRight) mRight.style.width = "0%";
+                }
+            }
+            
+            updateBatchButtonState();
         });
 
         itemDiv.addEventListener('click', () => {
             selectVideo(fileObj);
         });
         libraryList.appendChild(itemDiv);
+        updateBatchButtonState();
     }
 
-    convertBtn.addEventListener('click', async () => {
+    async function runConversion(useOverride = false) {
         const checkboxes = document.querySelectorAll('.lib-checkbox:checked');
         let selectedFiles = [];
 
@@ -738,26 +951,21 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const fps = fpsSlider.value;
-        
+        // Current UI values (for override mode)
+        const uiFps = parseInt(fpsSlider.value);
         const resActive = document.querySelector('#res-dropdown .dropdown-item.active');
-        let resolution = resActive ? resActive.dataset.value : "중간 (720p)";
-
-        if (resolution === "직접 설정") {
-            const w = customWidthInput.value || selectedFileObj.width;
-            const h = customHeightInput.value || selectedFileObj.height;
-            resolution = `${w}:${h}`;
+        let uiResolution = resActive ? resActive.dataset.value : "중간 (720p)";
+        if (uiResolution === "직접 설정") {
+            uiResolution = `${customWidthInput.value}:${customHeightInput.value}`;
         }
-
         const colorsActive = document.querySelector('#colors-dropdown .dropdown-item.active');
-        const numColors = colorsActive ? parseInt(colorsActive.dataset.value) : 256;
-        const ditherToggle = document.getElementById('dither-toggle');
-        const useDither = ditherToggle.dataset.active === 'true';
-        const loopToggle = document.getElementById('loop-toggle');
-        const loopPlayback = loopToggle.dataset.active === 'true';
+        const uiNumColors = colorsActive ? parseInt(colorsActive.dataset.value) : 256;
+        const uiUseDither = ditherToggle.dataset.active === 'true';
+        const uiLoopPlayback = loopToggle.dataset.active === 'true';
 
         convertBtn.disabled = true;
         convertBtn.style.opacity = '0.5';
+        convertSplitBtn.disabled = true;
 
         let successCount = 0;
 
@@ -769,17 +977,36 @@ document.addEventListener('DOMContentLoaded', () => {
                 let outName = "output_" + fileObj.name.replace(/\.[^/.]+$/, "") + ".gif";
                 const start = fileObj.trimStart;
                 const end = fileObj.trimEnd || 99999;
+                
+                let fps, resolution, numColors, useDither, loopPlayback;
+
+                if (useOverride) {
+                    fps = uiFps;
+                    resolution = uiResolution;
+                    numColors = uiNumColors;
+                    useDither = uiUseDither;
+                    loopPlayback = uiLoopPlayback;
+                } else {
+                    fps = fileObj.fps || 24;
+                    resolution = fileObj.resolution || "중간 (720p)";
+                    if (resolution === "직접 설정") {
+                        const w = fileObj.customWidth || fileObj.width;
+                        const h = fileObj.customHeight || fileObj.height;
+                        resolution = `${w}:${h}`;
+                    }
+                    numColors = fileObj.numColors || 256;
+                    useDither = fileObj.useDither || false;
+                    loopPlayback = fileObj.loopPlayback !== undefined ? fileObj.loopPlayback : true;
+                }
 
                 const res = await eel.convert_to_gif(fileObj.path, outName, start, end, fps, resolution, numColors, useDither, loopPlayback)();
 
                 if (res.status === 'success') {
                     successCount++;
-                    updateStatus(`${fileObj.name} 완료! (다운로드 폴더 확인)`);
-
-                    await new Promise(r => setTimeout(r, 500));
+                    updateStatus(`${fileObj.name} 완료!`);
+                    await new Promise(r => setTimeout(r, 300));
                 } else {
                     console.error("오류: " + res.message);
-                    alert(`오류 (${fileObj.name}): ` + res.message);
                 }
             }
             updateStatus(`완료! 총 ${successCount}개 변환 완료.`);
@@ -789,6 +1016,10 @@ document.addEventListener('DOMContentLoaded', () => {
         } finally {
             convertBtn.disabled = false;
             convertBtn.style.opacity = '1';
+            convertSplitBtn.disabled = false;
+            updateBatchButtonState();
         }
-    });
+    }
+
+    convertBtn.addEventListener('click', () => runConversion(false));
 });
