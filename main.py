@@ -176,9 +176,12 @@ def convert_to_gif(input_path, output_name, start_time, end_time, fps, resolutio
         
         # Determine scale
         scale_filter = ""
-        if "720" in resolution:
+        if ":" in str(resolution):
+            # Custom resolution like "1280:720"
+            scale_filter = f"scale={resolution}:flags=lanczos,"
+        elif "720" in str(resolution):
             scale_filter = "scale=-1:min(ih\\,720):flags=lanczos,"
-        elif "480" in resolution:
+        elif "480" in str(resolution):
             scale_filter = "scale=-1:min(ih\\,480):flags=lanczos,"
             
         # Determine dither
@@ -253,7 +256,7 @@ if __name__ == '__main__':
         if current_os == 'Windows':
             # 윈도우: 엣지 엔진(WebView2) 사용 - 코덱 지원 및 단독 앱 느낌
             eel.start('index.html', 
-                      size=(1280, 800), 
+                      size=(1280, 850), 
                       port=8889, 
                       mode='edge', 
                       cmdline_args=[
@@ -262,7 +265,7 @@ if __name__ == '__main__':
                           '--hide-scrollbars',
                           '--window-name="GIF Converter"'
                       ])
-        elif current_os == 'Darwin':
+        if current_os == 'Darwin':
             # 맥: pywebview 네이티브 엔진 사용 - 크롬 아이콘 방지 및 사파리 코덱 활용
             # 맥에서는 pywebview가 독(Dock) 아이콘 관리와 MP4 재생에 가장 탁월합니다.
             import webview
@@ -276,7 +279,7 @@ if __name__ == '__main__':
             t.start()
             
             time.sleep(1) # 서버 시작 대기
-            webview.create_window('GIF Converter', 'http://127.0.0.1:8889', width=1280, height=800)
+            webview.create_window('GIF Converter', 'http://127.0.0.1:8889', width=1280, height=850)
             webview.start()
         else:
             # 기타 (리눅스 등)

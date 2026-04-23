@@ -102,6 +102,38 @@ document.addEventListener('DOMContentLoaded', () => {
 
     initCustomDropdowns();
 
+    const resDropdown = document.getElementById('res-dropdown');
+    const customResContainer = document.getElementById('custom-res-container');
+    const customWidthInput = document.getElementById('custom-width');
+    const customHeightInput = document.getElementById('custom-height');
+    const aspectRatioLock = document.getElementById('aspect-ratio-lock');
+
+    resDropdown.addEventListener('change', (e) => {
+        if (e.detail.value === "직접 설정") {
+            customResContainer.classList.remove('hidden');
+            if (selectedFileObj) {
+                customWidthInput.value = selectedFileObj.width;
+                customHeightInput.value = selectedFileObj.height;
+            }
+        } else {
+            customResContainer.classList.add('hidden');
+        }
+    });
+
+    customWidthInput.addEventListener('input', () => {
+        if (aspectRatioLock.checked && selectedFileObj) {
+            const ratio = selectedFileObj.width / selectedFileObj.height;
+            customHeightInput.value = Math.round(customWidthInput.value / ratio);
+        }
+    });
+
+    customHeightInput.addEventListener('input', () => {
+        if (aspectRatioLock.checked && selectedFileObj) {
+            const ratio = selectedFileObj.width / selectedFileObj.height;
+            customWidthInput.value = Math.round(customHeightInput.value * ratio);
+        }
+    });
+
     // Update FPS display
     fpsSlider.addEventListener('input', (e) => {
         fpsDisplay.textContent = `${e.target.value} FPS`;
@@ -119,16 +151,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // NATIVE FILE PICKER
     addBtn.addEventListener('click', async () => {
-        updateStatus("탐색기에서 파일을 선택해주세요...");
         const paths = await eel.pick_videos()();
 
         if (!paths || paths.length === 0) {
-            statusMsg.textContent = "취소됨.";
             return;
         }
 
         for (const path of paths) {
-            updateStatus("파일 정보 가져오는 중...");
             const res = await eel.get_file_info(path)();
 
             if (res.status === 'success') {
@@ -160,8 +189,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (uploadedFiles.length === 1 || !selectedFileObj) {
                     selectVideo(fileObj);
                 }
-                updateStatus("파일 추가됨.");
-                setTimeout(() => updateStatus(""), 2000);
             } else {
                 statusMsg.textContent = "오류: " + res.message;
             }
@@ -414,21 +441,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 e.preventDefault();
                 selectedFileObj.trimStart = 0;
                 updateTimelineUI();
-                updateStatus("시작 지점(IN) 초기화됨");
-                setTimeout(() => updateStatus(""), 1500);
             } else if (key === 'o') {
                 e.preventDefault();
                 selectedFileObj.trimEnd = selectedFileObj.duration;
                 updateTimelineUI();
-                updateStatus("종료 지점(OUT) 초기화됨");
-                setTimeout(() => updateStatus(""), 1500);
             } else if (key === 'x') {
                 e.preventDefault();
                 selectedFileObj.trimStart = 0;
                 selectedFileObj.trimEnd = selectedFileObj.duration;
                 updateTimelineUI();
-                updateStatus("마커 전체 초기화됨");
-                setTimeout(() => updateStatus(""), 1500);
             }
             return;
         }
@@ -445,8 +466,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     selectedFileObj.trimEnd = Math.min(selectedFileObj.duration, selectedFileObj.trimStart + 0.1);
                 }
                 updateTimelineUI();
-                updateStatus("시작 지점(IN) 설정됨");
-                setTimeout(() => updateStatus(""), 1500);
                 break;
             case 'o':
             case 'O':
@@ -455,8 +474,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     selectedFileObj.trimStart = Math.max(0, selectedFileObj.trimEnd - 0.1);
                 }
                 updateTimelineUI();
-                updateStatus("종료 지점(OUT) 설정됨");
-                setTimeout(() => updateStatus(""), 1500);
                 break;
             case 'ArrowLeft':
                 e.preventDefault();
@@ -724,7 +741,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const fps = fpsSlider.value;
         
         const resActive = document.querySelector('#res-dropdown .dropdown-item.active');
-        const resolution = resActive ? resActive.textContent : "중간 (720p)";
+        let resolution = resActive ? resActive.dataset.value : "중간 (720p)";
+
+        if (resolution === "직접 설정") {
+            const w = customWidthInput.value || selectedFileObj.width;
+            const h = customHeightInput.value || selectedFileObj.height;
+            resolution = `${w}:${h}`;
+        }
 
         const colorsActive = document.querySelector('#colors-dropdown .dropdown-item.active');
         const numColors = colorsActive ? parseInt(colorsActive.dataset.value) : 256;
