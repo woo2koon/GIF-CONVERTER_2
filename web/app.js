@@ -61,6 +61,16 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentVideoFileName = null;
     let videoDuration = 0;
     let selectedFileObj = null;
+    let uploadedFiles = [];
+    let isProcessingFiles = false;
+    
+    // 병렬 프록시 큐 관리자
+    const proxyQueue = [];
+    let activeProxyCount = 0;
+    const MAX_CONCURRENT_PROXIES = 3; // M1 에어 기준 쾌적한 병렬 개수
+    
+    // 프록시 완료 대기를 위한 Promise 관리
+    const proxyResolvers = new Map();
 
     // --- Custom Dropdown Logic ---
     function initCustomDropdowns() {
@@ -194,11 +204,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function updateBatchButtonState() {
-        const checkedCount = document.querySelectorAll('.lib-checkbox:checked').length;
+        const checkedBoxes = document.querySelectorAll('.lib-checkbox:checked');
+        const checkedCount = checkedBoxes.length;
         const isBatch = checkedCount >= 2;
         const splitPart = document.getElementById('split-part');
         const convertBtn = document.getElementById('convert-btn');
         
+        // 일괄 변환 버튼 (메인 변환 영역)
         if (isBatch) {
             splitPart.classList.remove('hidden');
             splitPart.classList.add('flex');
@@ -210,6 +222,19 @@ document.addEventListener('DOMContentLoaded', () => {
             convertBtn.classList.add('rounded-xl');
             convertBtn.classList.remove('rounded-l-xl');
             batchMenu.classList.add('hidden');
+        }
+
+        // 일괄 삭제 바 (사이드바 하단) - 2개 이상 선택 시에만 표시
+        const bulkDeleteBar = document.getElementById('bulk-delete-bar');
+        const bulkSelectCountText = document.getElementById('bulk-select-count');
+        
+        if (checkedCount >= 2) {
+            bulkSelectCountText.textContent = `${checkedCount}개 선택됨`;
+            bulkDeleteBar.classList.remove('translate-y-32', 'opacity-0', 'pointer-events-none');
+            bulkDeleteBar.classList.add('translate-y-0');
+        } else {
+            bulkDeleteBar.classList.add('translate-y-32', 'opacity-0', 'pointer-events-none');
+            bulkDeleteBar.classList.remove('translate-y-0');
         }
     }
 
@@ -240,61 +265,236 @@ document.addEventListener('DOMContentLoaded', () => {
         runConversion(true);
     });
 
-    let uploadedFiles = [];
+    // 드래그 앤 드롭 지원 로직 통합
+    const dropOverlay = document.getElementById('drop-overlay');
+    
+    window.addEventListener('dragenter', (e) => {
+        e.preventDefault();
+        if (dropOverlay) dropOverlay.classList.add('active');
+    });
 
-    // NATIVE FILE PICKER
-    addBtn.addEventListener('click', async () => {
-        const paths = await eel.pick_videos()();
-
-        if (!paths || paths.length === 0) {
-            return;
+    window.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        if (dropOverlay && !dropOverlay.classList.contains('active')) {
+            dropOverlay.classList.add('active');
         }
+    });
 
-        for (const path of paths) {
-            const res = await eel.get_file_info(path)();
+    window.addEventListener('dragleave', (e) => {
+        if (dropOverlay && (e.relatedTarget === null || e.clientX <= 0 || e.clientY <= 0)) {
+            dropOverlay.classList.remove('active');
+        }
+    });
 
-            if (res.status === 'success') {
-                // 맥(Safari)의 강력한 보안 정책 때문에 http:// 로 띄운 창에서는 file:// 에 직접 접근이 차단됩니다.
-                // 따라서 다시 파이썬 로컬 서버를 거치는 안전한 방식으로 되돌립니다.
-                const cleanPath = res.path.startsWith('/') ? res.path.slice(1) : res.path;
-                const normalizedPath = cleanPath.replace(/\\/g, '/');
-                const safePath = normalizedPath.split('/').map(encodeURIComponent).join('/');
-                const objectUrl = `/local_file/${safePath}`;
+    window.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        if (dropOverlay) dropOverlay.classList.remove('active');
+
+        const files = e.dataTransfer.files;
+        if (files && files.length > 0) {
+            const paths = [];
+            for (let i = 0; i < files.length; i++) {
+                const path = files[i].pywebviewFullPath || files[i].path;
+                if (path) paths.push(path);
+            }
+            if (paths.length > 0) processFilePaths(paths);
+        }
+    });
+
+    async function processFilePaths(filePaths) {
+        if (!filePaths || filePaths.length === 0 || isProcessingFiles) return;
+        isProcessingFiles = true;
+
+        const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+        const totalFiles = filePaths.length;
+        let processedCount = 0;
+
+        for (const path of filePaths) {
+            try {
+                if (uploadedFiles.some(f => f.path === path)) continue;
+
+                const res = await eel.get_file_info(path)();
+                if (res.status === "error") continue;
 
                 const fileObj = {
+                    id: `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
                     name: res.name,
                     path: res.path,
-                    objectUrl: objectUrl,
                     size: res.size,
-                    fps: parseInt(fpsSlider.value) || 24,
                     duration: res.duration || 0,
                     width: res.width || 1280,
                     height: res.height || 720,
+                    fps: res.fps || 24,
+                    objectUrl: `/local_file/${res.path.split('/').map(encodeURIComponent).join('/')}`,
+                    proxyPath: null,
                     trimStart: 0,
                     trimEnd: res.duration || 0,
-                    currentTime: 0,
-                    filmstrip: [],
-                    aspectRatio: res.width / res.height || 16 / 9,
-                    // Current UI settings as defaults for this new file
-                    resolution: document.querySelector('#res-dropdown .dropdown-item.active').dataset.value || "중간 (720p)",
-                    numColors: parseInt(document.querySelector('#colors-dropdown .dropdown-item.active').dataset.value) || 256,
-                    useDither: ditherToggle.dataset.active === 'true',
-                    loopPlayback: loopToggle.dataset.active === 'true',
+                    loopPlayback: true,
+                    useDither: false,
                     aspectRatioLock: aspectRatioLock.checked,
                     customWidth: parseInt(customWidthInput.value) || res.width,
-                    customHeight: parseInt(customHeightInput.value) || res.height
+                    customHeight: parseInt(customHeightInput.value) || res.height,
+                    isProxying: false,
+                    proxyStatusShown: false
                 };
+
                 uploadedFiles.push(fileObj);
                 addLibraryItem(fileObj);
 
-                if (uploadedFiles.length === 1 || !selectedFileObj) {
-                    selectVideo(fileObj);
+                if (isMac && res.name.toLowerCase().endsWith('.webm')) {
+                    proxyQueue.push(fileObj);
                 }
-            } else {
-                statusMsg.textContent = "오류: " + res.message;
+
+                processedCount++;
+                updateStatus(`파일 로드 중... (${processedCount}/${totalFiles})`);
+            } catch (err) {
+                console.error("File load error:", err);
             }
         }
+
+        processProxyQueue();
+        isProcessingFiles = false;
+
+        if (processedCount > 0) {
+            updateStatus(`${processedCount}개의 파일을 불러왔습니다.`);
+            setTimeout(() => updateStatus(""), 3000);
+            if (!selectedFileObj && uploadedFiles.length > 0) {
+                selectVideo(uploadedFiles[0]);
+            }
+        }
+    }
+
+    // 파일 추가 버튼 (네이티브 선택창 사용)
+    addBtn.addEventListener('click', async () => {
+        const paths = await eel.pick_videos()();
+        if (paths && paths.length > 0) {
+            processFilePaths(paths);
+        }
     });
+
+    // Python에서 진행률 업데이트 시 호출
+    eel.expose(update_proxy_progress);
+    function update_proxy_progress(file_id, progress) {
+        const item = document.querySelector(`[data-id="${file_id}"]`);
+        if (!item) return;
+        
+        const bar = item.querySelector('.proxy-progress-bar');
+        const container = item.querySelector('.proxy-progress-container');
+        const statusText = item.querySelector('.proxy-status-text');
+        
+        if (container) container.classList.remove('hidden');
+        if (bar) bar.style.width = `${progress}%`;
+        
+        // 만약 현재 플레이어에 떠있는 파일이라면 중앙 오버레이도 업데이트
+        const overlay = document.getElementById('proxy-overlay');
+        const overlayProgress = document.getElementById('proxy-overlay-progress');
+        if (selectedFileObj && selectedFileObj.id === file_id) {
+            if (overlay) overlay.classList.remove('hidden');
+            if (overlayProgress) overlayProgress.textContent = `${progress}%`;
+        }
+
+        if (statusText) {
+            if (progress >= 100) {
+                statusText.textContent = "변환 완료";
+                // 프록시 배지 노출
+                const badge = item.querySelector('.proxy-badge');
+                if (badge) badge.classList.remove('hidden');
+                
+                setTimeout(() => {
+                    if (container) container.classList.add('hidden');
+                    statusText.textContent = "";
+                    if (selectedFileObj && selectedFileObj.id === file_id && overlay) {
+                        overlay.classList.add('hidden');
+                    }
+                }, 2000);
+            } else {
+                statusText.textContent = `프록시 생성 중... ${progress}%`;
+            }
+        }
+    }
+
+    // Python에서 프록시 변환 완료 시 호출
+    eel.expose(proxy_completed);
+    function proxy_completed(file_id, result) {
+        if (proxyResolvers.has(file_id)) {
+            const resolver = proxyResolvers.get(file_id);
+            proxyResolvers.delete(file_id);
+            
+            if (result.status === 'success') {
+                const fileObj = uploadedFiles.find(f => f.id === file_id);
+                if (fileObj) {
+                    handleProxyReady(fileObj, result.proxy_path);
+                }
+                resolver.resolve(result);
+            } else {
+                resolver.reject(new Error(result.message));
+            }
+        }
+    }
+
+    function handleProxyReady(fileObj, proxyPath) {
+        fileObj.isProxying = false;
+        
+        let safeProxyPath = proxyPath.replace(/\\/g, '/');
+        if (safeProxyPath.startsWith('/')) safeProxyPath = safeProxyPath.substring(1);
+        const newUrl = `http://127.0.0.1:8889/local_file/${safeProxyPath}`;
+        
+        fileObj.proxyPath = proxyPath;
+        fileObj.objectUrl = newUrl;
+        
+        // 사이드바 목록의 프록시 배지 활성화
+        const item = document.querySelector(`[data-id="${fileObj.id}"]`);
+        if (item) {
+            const badge = item.querySelector('.proxy-badge');
+            if (badge) badge.classList.remove('hidden');
+        }
+        
+        // 현재 선택된 파일이면 즉시 교체
+        if (selectedFileObj && selectedFileObj.id === fileObj.id) {
+            const timestamp = Date.now();
+            mainPlayer.src = `${newUrl}?t=${timestamp}`;
+            mainPlayer.load();
+            
+            mainPlayer.onloadeddata = () => {
+                updateTimelineUI();
+                document.getElementById('proxy-badge').classList.remove('hidden');
+                if (!fileObj.proxyStatusShown) {
+                    updateStatus("미리보기 준비 완료 (프록시)");
+                    fileObj.proxyStatusShown = true;
+                    setTimeout(() => updateStatus(""), 3000);
+                }
+            };
+        }
+    }
+
+    async function startProxyConversion(fileObj) {
+        if (fileObj.isProxying) return;
+        fileObj.isProxying = true;
+        
+        const res = await eel.request_proxy(fileObj.path, fileObj.id)();
+        
+        if (res.status === 'success') {
+            handleProxyReady(fileObj, res.proxy_path);
+            return res;
+        } else if (res.status === 'processing') {
+            // 백그라운드 작업 완료를 기다리는 Promise 생성
+            return new Promise((resolve, reject) => {
+                proxyResolvers.set(fileObj.id, { resolve, reject });
+            });
+        } else {
+            fileObj.isProxying = false;
+            throw new Error(res.message);
+        }
+    }
+
+
+    // Python에서 드래그 앤 드롭된 파일 경로를 보낼 때 호출되는 함수
+    eel.expose(handle_dropped_files_from_python);
+    function handle_dropped_files_from_python(paths) {
+        processFilePaths(paths);
+    }
+
+    // 기존 중복 드래그 앤 드롭 로직 제거됨
 
     async function generateFilmstrip(fileObj) {
         if (fileObj.filmstrip && fileObj.filmstrip.length > 0) {
@@ -401,6 +601,34 @@ document.addEventListener('DOMContentLoaded', () => {
             const tArea = document.getElementById('timeline-area');
             if (tArea) tArea.classList.remove('hidden');
             
+            mainPlayer.onloadeddata = () => {
+                updateTimelineUI();
+                updateToggleUI(loopToggle, fileObj.loopPlayback);
+                updateToggleUI(ditherToggle, fileObj.useDither);
+                fpsSlider.value = fileObj.fps;
+                fpsDisplay.textContent = `${fileObj.fps} FPS`;
+                
+                // 프록시 상태에 따른 오버레이 제어
+                const overlay = document.getElementById('proxy-overlay');
+                if (fileObj.isProxying) {
+                    if (overlay) overlay.classList.remove('hidden');
+                } else {
+                    if (overlay) overlay.classList.add('hidden');
+                }
+
+                // 프록시 파일인 경우에만 상태 메시지 및 배지 표시
+                if (fileObj.proxyPath) {
+                    document.getElementById('proxy-badge').classList.remove('hidden');
+                    if (!fileObj.proxyStatusShown) {
+                        updateStatus("미리보기 준비 완료 (프록시)");
+                        fileObj.proxyStatusShown = true;
+                        setTimeout(() => updateStatus(""), 3000);
+                    }
+                } else {
+                    document.getElementById('proxy-badge').classList.add('hidden');
+                }
+            };
+            
             syncUIToFile(fileObj);
         }, 50);
     }
@@ -485,6 +713,27 @@ document.addEventListener('DOMContentLoaded', () => {
         updateTimelineUI();
     };
 
+    mainPlayer.addEventListener('error', async (e) => {
+        const error = mainPlayer.error;
+        const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+        
+        if (!error || !selectedFileObj) return;
+
+        // 맥 환경이고 WebM 파일인 경우에만 프록시 변환 고려
+        const isWebM = selectedFileObj.name.toLowerCase().endsWith('.webm');
+        
+        if (isMac && isWebM && error.code === 4) {
+            if (!selectedFileObj.proxyPath && !selectedFileObj.isProxying) {
+                console.warn("Mac WebM playback error. Starting proxy:", selectedFileObj.path);
+                updateStatus("시스템 미지원 포맷입니다. 프록시를 생성합니다...");
+                startProxyConversion(selectedFileObj);
+            }
+        } else {
+            // 그 외의 일반적인 로딩 에러는 콘솔에만 출력하고 무시
+            console.log("Transient video player error ignored:", error.code);
+        }
+    });
+
     function togglePlayPause() {
         if (!selectedFileObj) return;
         if (mainPlayer.paused) {
@@ -495,6 +744,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function formatTime(seconds) {
+        if (isNaN(seconds) || seconds === undefined || seconds === null) seconds = 0;
+        
         // 우측 슬라이더와 무관하게, 영상 원본의 진짜 프레임 레이트 사용 (없으면 30)
         const sourceFps = selectedFileObj && selectedFileObj.fps ? selectedFileObj.fps : 30.0;
         
@@ -573,76 +824,82 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Keyboard Shortcuts (Unified)
+    // Keyboard Shortcuts (Unified & Optimized)
     document.addEventListener('keydown', (e) => {
+        // 입력 필드에서는 단축키 비활성화
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
         if (!selectedFileObj) return;
 
-        const isAlt = e.altKey;
-        const key = e.key.toLowerCase();
+        const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+        const modKey = isMac ? e.metaKey : e.ctrlKey; // Mac: Cmd, Win: Ctrl
+        const altKey = e.altKey;
+        const shiftKey = e.shiftKey;
+        const code = e.code; // e.key 대신 e.code를 사용하여 한글 상태에서도 정상 작동 (ㅑ -> KeyI)
 
-        // Alt Combinations (Reset)
-        if (isAlt) {
-            if (key === 'i') {
-                e.preventDefault();
-                selectedFileObj.trimStart = 0;
-                updateTimelineUI();
-            } else if (key === 'o') {
-                e.preventDefault();
-                selectedFileObj.trimEnd = selectedFileObj.duration;
-                updateTimelineUI();
-            } else if (key === 'x') {
-                e.preventDefault();
-                selectedFileObj.trimStart = 0;
-                selectedFileObj.trimEnd = selectedFileObj.duration;
-                updateTimelineUI();
-            }
-            return;
-        }
-
-        switch (e.key) {
-            case ' ':
+        // 단축키 매핑 및 시스템 비프음(뽁 소리) 방지
+        switch (code) {
+            case 'Space':
                 e.preventDefault();
                 togglePlayPause();
                 break;
-            case 'i':
-            case 'I':
-                selectedFileObj.trimStart = mainPlayer.currentTime;
-                if (selectedFileObj.trimStart >= selectedFileObj.trimEnd) {
-                    selectedFileObj.trimEnd = Math.min(selectedFileObj.duration, selectedFileObj.trimStart + 0.1);
+                
+            case 'KeyI':
+                e.preventDefault();
+                if (altKey) {
+                    selectedFileObj.trimStart = 0;
+                } else {
+                    selectedFileObj.trimStart = mainPlayer.currentTime;
+                    if (selectedFileObj.trimStart >= selectedFileObj.trimEnd) {
+                        selectedFileObj.trimEnd = Math.min(selectedFileObj.duration, selectedFileObj.trimStart + 0.1);
+                    }
                 }
                 updateTimelineUI();
                 break;
-            case 'o':
-            case 'O':
-                selectedFileObj.trimEnd = mainPlayer.currentTime;
-                if (selectedFileObj.trimEnd <= selectedFileObj.trimStart) {
-                    selectedFileObj.trimStart = Math.max(0, selectedFileObj.trimEnd - 0.1);
+                
+            case 'KeyO':
+                e.preventDefault();
+                if (altKey) {
+                    selectedFileObj.trimEnd = selectedFileObj.duration;
+                } else {
+                    selectedFileObj.trimEnd = mainPlayer.currentTime;
+                    if (selectedFileObj.trimEnd <= selectedFileObj.trimStart) {
+                        selectedFileObj.trimStart = Math.max(0, selectedFileObj.trimEnd - 0.1);
+                    }
                 }
                 updateTimelineUI();
                 break;
+                
+            case 'KeyX':
+                if (altKey) {
+                    e.preventDefault();
+                    selectedFileObj.trimStart = 0;
+                    selectedFileObj.trimEnd = selectedFileObj.duration;
+                    updateTimelineUI();
+                }
+                break;
+                
             case 'ArrowLeft':
                 e.preventDefault();
                 mainPlayer.pause();
-                const fps = selectedFileObj.fps || 30;
-                let jumpBack = 1 / fps; // 1 frame
-                if (e.shiftKey && (e.ctrlKey || e.metaKey)) jumpBack = 10 / fps; // 10 frames
-                else if (e.shiftKey) jumpBack = 5 / fps; // 5 frames
-                
-                mainPlayer.currentTime = Math.max(0, mainPlayer.currentTime - jumpBack);
+                const fpsL = selectedFileObj.fps || 30;
+                let jumpL = 1 / fpsL;
+                if (shiftKey && modKey) jumpL = 10 / fpsL;
+                else if (shiftKey) jumpL = 5 / fpsL;
+                mainPlayer.currentTime = Math.max(0, mainPlayer.currentTime - jumpL);
                 updateTimelineUI();
                 break;
+                
             case 'ArrowRight':
                 e.preventDefault();
                 mainPlayer.pause();
                 const fpsR = selectedFileObj.fps || 30;
-                let jumpForward = 1 / fpsR; // 1 frame
-                if (e.shiftKey && (e.ctrlKey || e.metaKey)) jumpForward = 10 / fpsR; // 10 frames
-                else if (e.shiftKey) jumpForward = 5 / fpsR; // 5 frames
-
-                mainPlayer.currentTime = Math.min(selectedFileObj.duration, mainPlayer.currentTime + jumpForward);
+                let jumpR = 1 / fpsR;
+                if (shiftKey && modKey) jumpR = 10 / fpsR;
+                else if (shiftKey) jumpR = 5 / fpsR;
+                mainPlayer.currentTime = Math.min(selectedFileObj.duration, mainPlayer.currentTime + jumpR);
                 updateTimelineUI();
                 break;
+                
             case 'ArrowUp':
                 e.preventDefault();
                 mainPlayer.currentTime = selectedFileObj.trimStart;
@@ -722,6 +979,21 @@ document.addEventListener('DOMContentLoaded', () => {
     let isScrubbing = false;
     let isDraggingLeft = false;
     let isDraggingRight = false;
+
+    async function processProxyQueue() {
+        if (proxyQueue.length === 0 || activeProxyCount >= MAX_CONCURRENT_PROXIES) return;
+
+        while (proxyQueue.length > 0 && activeProxyCount < MAX_CONCURRENT_PROXIES) {
+            const fileObj = proxyQueue.shift();
+            activeProxyCount++;
+            
+            // 병렬로 인코딩 시작 (await 하지 않음)
+            startProxyConversion(fileObj).finally(() => {
+                activeProxyCount--;
+                processProxyQueue(); // 하나 끝나면 다음 작업 호출
+            });
+        }
+    }
     let lastTargetTime = -1; // 마지막으로 강제 이동한 목표 시간
     let seekLockTimeout = null; // 이동 중 루프 차단 타이머
 
@@ -852,26 +1124,175 @@ document.addEventListener('DOMContentLoaded', () => {
         requestAnimationFrame(updateUIFrame);
     }
 
+    // --- Custom Context Menu Logic ---
+    const ctxMenu = document.getElementById('custom-context-menu');
+    let ctxTargetFile = null;
+
+    // 전역 우클릭 방지
+    document.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        ctxMenu.classList.add('hidden');
+    });
+
+    function showContextMenu(e, fileObj) {
+        e.preventDefault();
+        e.stopPropagation();
+        ctxTargetFile = fileObj;
+
+        // 메뉴 위치 설정
+        ctxMenu.style.left = `${e.pageX}px`;
+        ctxMenu.style.top = `${e.pageY}px`;
+        ctxMenu.classList.remove('hidden');
+
+        // 프록시 버튼 상태 업데이트
+        const proxyBtn = document.getElementById('ctx-generate-proxy');
+        if (fileObj.proxyPath || fileObj.isProxying) {
+            proxyBtn.classList.add('opacity-30', 'pointer-events-none');
+            proxyBtn.querySelector('span').textContent = fileObj.isProxying ? "pending" : "check_circle";
+        } else {
+            proxyBtn.classList.remove('opacity-30', 'pointer-events-none');
+            proxyBtn.querySelector('span').textContent = "speed";
+        }
+    }
+
+    // 메뉴 바깥 클릭 시 닫기
+    document.addEventListener('click', () => {
+        ctxMenu.classList.add('hidden');
+    });
+
+    // 메뉴 항목 클릭 처리
+    document.getElementById('ctx-generate-proxy').addEventListener('click', () => {
+        if (ctxTargetFile) startProxyConversion(ctxTargetFile);
+    });
+
+    document.getElementById('ctx-open-folder').addEventListener('click', () => {
+        if (ctxTargetFile) eel.open_file_location(ctxTargetFile.path)();
+    });
+
+    document.getElementById('ctx-delete').addEventListener('click', () => {
+        if (ctxTargetFile) {
+            const item = document.querySelector(`[data-id="${ctxTargetFile.id}"]`);
+            if (item) item.querySelector('.delete-file-btn').click();
+        }
+    });
+
+    // --- Custom Confirmation Modal Logic ---
+    function showCustomConfirm(title, message, okText = "제거하기") {
+        return new Promise((resolve) => {
+            const modal = document.getElementById('confirm-modal');
+            const titleEl = document.getElementById('confirm-title');
+            const messageEl = document.getElementById('confirm-message');
+            const okBtn = document.getElementById('confirm-ok-btn');
+            const cancelBtn = document.getElementById('confirm-cancel-btn');
+
+            titleEl.textContent = title;
+            messageEl.innerHTML = message;
+            okBtn.textContent = okText;
+            
+            modal.classList.remove('hidden');
+
+            const cleanup = (result) => {
+                modal.classList.add('hidden');
+                okBtn.onclick = null;
+                cancelBtn.onclick = null;
+                resolve(result);
+            };
+
+            okBtn.onclick = () => cleanup(true);
+            cancelBtn.onclick = () => cleanup(false);
+        });
+    }
+
+    // 일괄 삭제 실행
+    document.getElementById('bulk-delete-btn').addEventListener('click', async () => {
+        const checkedBoxes = document.querySelectorAll('.lib-checkbox:checked');
+        if (checkedBoxes.length === 0) return;
+
+        const confirmed = await showCustomConfirm(
+            "목록 제거 확인", 
+            `선택한 <b>${checkedBoxes.length}개</b>의 파일을 목록에서 제거하시겠습니까?<br><small class="text-slate-400">원본 파일은 삭제되지 않습니다.</small>`
+        );
+        
+        if (!confirmed) return;
+
+        let currentFileDeleted = false;
+        const idsToRemove = Array.from(checkedBoxes).map(cb => {
+            const item = cb.closest('[data-id]');
+            return item.dataset.id;
+        });
+
+        idsToRemove.forEach(id => {
+            const fileIdx = uploadedFiles.findIndex(f => f.id === id);
+            if (fileIdx > -1) {
+                if (selectedFileObj && selectedFileObj.id === id) currentFileDeleted = true;
+                uploadedFiles.splice(fileIdx, 1);
+                document.querySelector(`[data-id="${id}"]`).remove();
+            }
+        });
+
+        // 현재 편집 중인 파일이 삭제된 경우 처리
+        if (currentFileDeleted) {
+            if (uploadedFiles.length > 0) {
+                selectVideo(uploadedFiles[0]);
+            } else {
+                selectedFileObj = null;
+                mainPlayer.src = "";
+                mainPlayer.classList.add('hidden');
+                placeholderMsg.classList.remove('hidden');
+                document.getElementById('header-filename').textContent = "파일을 선택해주세요";
+                document.getElementById('header-resolution').textContent = "영상 정보가 여기에 표시됩니다";
+                document.getElementById('timeline-area').classList.add('hidden');
+            }
+        }
+
+        // 인덱스 및 UI 갱신
+        document.querySelectorAll('.lib-checkbox').forEach((cb, i) => {
+            cb.dataset.index = i;
+        });
+        updateBatchButtonState();
+        updateStatus(`${idsToRemove.length}개의 파일을 목록에서 제거했습니다.`);
+        setTimeout(() => updateStatus(""), 3000);
+    });
+
     function addLibraryItem(fileObj) {
         const sizeMb = (fileObj.size / (1024 * 1024)).toFixed(1);
+        const format = fileObj.name.split('.').pop().toUpperCase();
         const itemDiv = document.createElement('div');
-        itemDiv.className = "bg-white text-indigo-600 shadow-sm rounded-lg p-3 cursor-pointer group transition-all duration-200 ease-in-out border border-indigo-200 hover:border-indigo-400";
+        itemDiv.className = "bg-white text-indigo-600 shadow-sm rounded-lg p-3 cursor-pointer group transition-all duration-200 ease-in-out border border-indigo-200 hover:border-indigo-400 select-none";
 
         const index = uploadedFiles.indexOf(fileObj);
 
+        itemDiv.setAttribute('data-id', fileObj.id);
+        
+        // 우클릭 이벤트 바인딩
+        itemDiv.addEventListener('contextmenu', (e) => showContextMenu(e, fileObj));
+
         itemDiv.innerHTML = `
-            <div class="flex gap-3 items-center">
-                <div class="flex items-center">
-                    <input type="checkbox" class="lib-checkbox w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer" data-index="${index}" />
+            <div class="flex flex-col gap-2">
+                <div class="flex gap-3 items-center">
+                    <div class="flex items-center">
+                        <input type="checkbox" class="lib-checkbox w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer" data-index="${index}" />
+                    </div>
+                    <div class="flex-1 flex flex-col justify-center overflow-hidden">
+                        <span class="truncate font-semibold text-on-surface">${fileObj.name}</span>
+                        <div class="flex items-center gap-2 mt-0.5">
+                            <span class="text-xs text-slate-500 font-medium">${sizeMb} MB</span>
+                            <div class="flex items-center gap-1.5">
+                                <span class="bg-slate-100 text-slate-500 px-1 py-0 rounded text-[9px] font-bold uppercase tracking-wider border border-slate-200/50 leading-tight">${format}</span>
+                                <span class="proxy-badge bg-indigo-50 text-indigo-600 px-1 py-0 rounded text-[9px] font-black uppercase tracking-widest border border-indigo-100 leading-tight ${fileObj.proxyPath ? '' : 'hidden'}">Proxy</span>
+                            </div>
+                            <span class="proxy-status-text text-[10px] font-bold text-indigo-500 animate-pulse"></span>
+                        </div>
+                    </div>
+                    <!-- Delete Button (Visible on Hover) -->
+                    <button class="delete-file-btn opacity-0 group-hover:opacity-100 p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all outline-none">
+                        <span class="material-symbols-outlined text-xl">delete</span>
+                    </button>
                 </div>
-                <div class="flex-1 flex flex-col justify-center overflow-hidden">
-                    <span class="truncate font-semibold text-on-surface">${fileObj.name}</span>
-                    <span class="text-xs text-slate-500">${sizeMb} MB</span>
+                <!-- Proxy Progress Bar Container -->
+                <div class="proxy-progress-container w-full h-1 bg-slate-100 rounded-full overflow-hidden hidden">
+                    <div class="proxy-progress-bar h-full bg-indigo-500 transition-all duration-300" style="width: 0%"></div>
                 </div>
-                <!-- Delete Button (Visible on Hover) -->
-                <button class="delete-file-btn opacity-0 group-hover:opacity-100 p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all outline-none">
-                    <span class="material-symbols-outlined text-xl">delete</span>
-                </button>
             </div>
         `;
 

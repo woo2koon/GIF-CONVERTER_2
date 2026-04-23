@@ -140,15 +140,49 @@
             color: #4f46e5;
             font-weight: 700;
         }
+
+        /* Drag and Drop Overlay */
+        #drop-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(67, 64, 230, 0.1);
+            backdrop-filter: blur(8px);
+            z-index: 1000;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border: 4px dashed #4340e6;
+            margin: 20px;
+            border-radius: 24px;
+            pointer-events: none;
+            transition: all 0.3s ease;
+        }
+
+        #drop-overlay.active {
+            display: flex;
+            background: rgba(67, 64, 230, 0.15);
+        }
     </style>
 </head>
 
 <body class="bg-surface text-on-surface h-screen flex flex-col overflow-hidden">
+    
+    <!-- Drag and Drop Overlay -->
+    <div id="drop-overlay">
+        <div class="bg-white p-8 rounded-3xl shadow-2xl flex flex-col items-center gap-4 animate-bounce">
+            <div class="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center">
+                <span class="material-symbols-outlined text-5xl text-primary">upload_file</span>
+            </div>
+            <p class="text-xl font-bold text-on-surface">여기에 비디오 파일을 놓으세요</p>
+            <p class="text-sm text-on-surface-variant">MP4, MOV, WebM 등 모든 영상 포맷 지원</p>
+        </div>
+    </div>
 
     <div class="flex-1 flex overflow-hidden">
         <!-- SideNavBar / Left Column: File Library -->
         <aside
-            class="w-80 bg-slate-100 flex flex-col gap-4 p-4 border-r border-slate-200/10 font-manrope font-medium text-sm">
+            class="w-80 bg-slate-100 flex flex-col gap-4 p-4 border-r border-slate-200/10 font-manrope font-medium text-sm relative overflow-hidden">
             <div class="flex items-center justify-between mb-2 px-1">
                 <div class="flex items-center gap-4 ml-1">
                     <h2 class="text-on-surface-variant font-extrabold uppercase tracking-widest text-base">파일</h2>
@@ -165,10 +199,20 @@
                     <span class="material-symbols-outlined text-xl font-bold" data-icon="add">add</span>
                 </button>
             </div>
-            <div id="library-list" class="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-3">
+            <div id="library-list" class="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-3 pb-24">
                 <!-- Files will be dynamically injected here -->
             </div>
 
+            <!-- Bulk Delete Action Bar -->
+            <div id="bulk-delete-bar" class="absolute bottom-4 left-3 right-3 bg-white shadow-[0_-8px_24px_rgba(0,0,0,0.08),0_12px_24px_rgba(239,68,68,0.15)] border border-red-50 rounded-2xl p-4 flex items-center justify-between transition-all duration-300 translate-y-32 opacity-0 pointer-events-none z-50">
+                <div class="flex flex-col">
+                    <span id="bulk-select-count" class="text-sm font-black text-slate-800 tracking-tight">0개 선택됨</span>
+                </div>
+                <button id="bulk-delete-btn" class="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 flex items-center gap-1.5 shadow-md shadow-red-200">
+                    <span class="material-symbols-outlined text-sm">list_alt_check</span>
+                    제거
+                </button>
+            </div>
         </aside>
         <!-- Center Column: Preview Player -->
         <main class="flex-1 bg-surface flex flex-col p-6 overflow-hidden">
@@ -187,6 +231,22 @@
                     <video id="main-player" class="w-full h-full object-contain hidden" playsinline
                         webkit-playsinline disablePictureInPicture></video>
                     <div id="placeholder-msg" class="text-on-surface-variant font-medium text-white">비디오를 선택하거나 업로드하세요
+                    </div>
+                    <div id="proxy-badge" class="absolute top-4 left-4 bg-[#2d2d2d]/80 text-white text-[10px] font-black px-2.5 py-1 rounded-md tracking-[0.15em] hidden select-none shadow-lg shadow-black/20">
+                        PROXY PREVIEW
+                    </div>
+
+                    <!-- Proxy Processing Overlay -->
+                    <div id="proxy-overlay" class="absolute inset-0 bg-black/80 z-20 flex flex-col items-center justify-center gap-4 hidden">
+                        <div class="relative w-16 h-16">
+                            <div class="absolute inset-0 border-4 border-white/10 rounded-full"></div>
+                            <div class="absolute inset-0 border-4 border-t-indigo-500 rounded-full animate-spin"></div>
+                        </div>
+                        <div class="flex flex-col items-center gap-1">
+                            <span class="text-white font-bold text-lg tracking-tight">WEBM 파일 프록시 변환 중...</span>
+                            <span id="proxy-overlay-progress" class="text-indigo-400 font-black text-2xl">0%</span>
+                        </div>
+                        <p class="text-white/40 text-xs mt-2">고해상도 미리보기를 준비하고 있습니다.</p>
                     </div>
                 </div>
 
@@ -375,11 +435,15 @@
             <div id="convert-container" class="mx-6 mb-6 bg-gradient-to-r from-primary to-primary-container rounded-xl shadow-lg shadow-primary/30 flex items-stretch transition-all relative">
                 <button id="convert-btn"
                     class="flex-1 text-white py-5 font-sans hover:bg-white/10 transition-all flex items-center justify-center outline-none rounded-l-xl">
-                    <svg viewBox="0 0 110 24" class="h-7 w-auto drop-shadow-[0_2px_2px_rgba(0,0,0,0.2)]" fill="currentColor">
-                        <!-- GIF (Bold/Heavy) -->
-                        <text x="0" y="18" font-family="Spoqa Han Sans Neo, sans-serif" font-weight="900" font-size="18" letter-spacing="-1">GIF</text>
-                        <!-- 변환 (Matching weight) -->
-                        <text x="40" y="18" font-family="Spoqa Han Sans Neo, sans-serif" font-weight="900" font-size="18" letter-spacing="-1">변환</text>
+                    <!-- User Custom SVG Graphics -->
+                    <svg id="convert-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 285.62 76.61" class="h-6 w-auto drop-shadow-[0_2px_2px_rgba(0,0,0,0.2)]">
+                        <g fill="currentColor">
+                            <path d="M0,39.78C0,19.22,13.4,7.16,29.92,7.16c9.02,0,15.26,3.88,19.3,8.01l-6.66,7.92c-3.03-2.95-6.49-5.23-12.22-5.23-10.37,0-17.62,8.09-17.62,21.49s6.24,21.75,18.46,21.75c3.03,0,6.07-.76,7.84-2.36v-12.31h-11.04v-10.2h22.17v28.15c-4.3,4.13-11.46,7.5-20.23,7.5C12.81,71.89,0,60.6,0,39.78Z"/>
+                            <path d="M72.23,70.71h-12.47V8.34h12.47v62.37Z"/>
+                            <path d="M122.2,18.71h-25.96v16.27h22.17v10.45h-22.17v25.28h-12.47V8.34h38.43v10.37Z"/>
+                            <path d="M143.86,5.48h11.04v11.8h14.75V5.48h10.87v7.75h13.82V.34h11.13v57.31h-11.13v-18.88h-13.82v6.83h-36.66V5.48ZM154.23,76.61v-24.53h11.13v15.68h41.8v8.85h-52.93ZM154.9,36.75h14.75v-10.96h-14.75v10.96ZM194.35,29.92v-7.75h-13.82v7.75h13.82Z"/>
+                            <path d="M214.57,53.44l-1.18-8.51c5.48,0,11.72,0,18.46-.25v-4.47c-8.43-1.26-13.4-5.48-13.4-11.55,0-7.42,7.5-12.05,18.96-12.05s18.88,4.64,18.88,12.05c0,6.07-5.14,10.28-13.32,11.55v3.96c6.41-.42,12.31-.84,18.37-1.77l.84,7.59c-16.1,3.12-34.39,3.46-47.62,3.46ZM215.33,6.66h16.52V0h11.13v6.66h16.44v7.92h-44.08v-7.92ZM278.45,76.61h-54.28v-19.47h11.13v10.62h43.15v8.85ZM237.41,33.21c5.39,0,8.34-1.6,8.34-4.55s-2.95-4.64-8.34-4.64-8.43,1.6-8.43,4.64,3.03,4.55,8.43,4.55ZM275.84,34.81v26.13h-11.13V.25h11.13v25.45h9.78v9.1h-9.78Z"/>
+                        </g>
                     </svg>
                 </button>
                 <div id="split-part" class="hidden relative border-l border-white/20">
@@ -410,6 +474,45 @@
         </div>
     </div>
     
+    <!-- Custom Context Menu -->
+    <div id="custom-context-menu" class="hidden fixed bg-white/90 backdrop-blur-xl border border-slate-200 shadow-2xl rounded-xl py-2 w-56 z-[9999] font-manrope">
+        <button id="ctx-generate-proxy" class="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors">
+            <span class="material-symbols-outlined text-[20px]">speed</span>
+            미리보기 프록시 생성
+        </button>
+        <button id="ctx-open-folder" class="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors">
+            <span class="material-symbols-outlined text-[20px]">folder_open</span>
+            폴더에서 보기
+        </button>
+        <div class="h-[1px] bg-slate-100 my-1"></div>
+        <button id="ctx-delete" class="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-red-500 hover:bg-red-50 transition-colors">
+            <span class="material-symbols-outlined text-[20px]">delete</span>
+            목록에서 제거
+        </button>
+    </div>
+
+    <!-- Custom Confirmation Modal -->
+    <div id="confirm-modal" class="hidden fixed inset-0 z-[10000] flex items-center justify-center p-6">
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
+        <div class="relative bg-white w-full max-w-sm rounded-3xl shadow-2xl border border-white/20 p-8 flex flex-col items-center text-center animate-in fade-in zoom-in duration-200">
+            <div class="w-16 h-16 bg-indigo-50 rounded-full flex items-center justify-center mb-6">
+                <span class="material-symbols-outlined text-indigo-500 text-3xl">list_alt</span>
+            </div>
+            <h3 id="confirm-title" class="text-xl font-black text-slate-800 mb-2">목록에서 제거하시겠습니까?</h3>
+            <p id="confirm-message" class="text-sm text-slate-500 font-medium leading-relaxed mb-8">
+                작업 목록에서만 제외되며,<br><b class="text-indigo-600">원본 파일은 안전하게 보관됩니다.</b>
+            </p>
+            <div class="flex gap-3 w-full">
+                <button id="confirm-cancel-btn" class="flex-1 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-2xl transition-all active:scale-95">
+                    취소
+                </button>
+                <button id="confirm-ok-btn" class="flex-1 py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl shadow-lg shadow-indigo-200 transition-all active:scale-95">
+                    제거하기
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script src="app.js"></script>
 </body>
 

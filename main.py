@@ -4,6 +4,10 @@ import base64
 import tkinter as tk
 from tkinter import filedialog
 import bottle
+import tempfile
+import subprocess
+import imageio_ffmpeg
+import re
 
 # Initialize Eel, pointing to the 'web' directory
 eel.init('web')
@@ -15,6 +19,10 @@ def server_local_file(filepath):
     import mimetypes
     import base64
     from urllib.parse import unquote
+    
+    # MIME 타입 보강
+    if '.webm' not in mimetypes.types_map:
+        mimetypes.add_type('video/webm', '.webm')
 
     # URL 디코딩 및 경로 정리
     filepath = unquote(filepath)
@@ -41,7 +49,10 @@ def server_local_file(filepath):
     # MIME 타입 추측
     mime_type, _ = mimetypes.guess_type(filepath)
     if not mime_type:
-        mime_type = 'video/mp4'
+        if filepath.lower().endswith('.webm'):
+            mime_type = 'video/webm'
+        else:
+            mime_type = 'video/mp4'
         
     response = bottle.static_file(file_name, root=root_dir, mimetype=mime_type)
     response.set_header('Accept-Ranges', 'bytes')
@@ -57,7 +68,7 @@ def pick_videos():
     
     if platform.system() == 'Darwin': # macOS
         script = '''
-        set theFiles to choose file with prompt "비디오 파일 선택" of type {"mp4", "mov", "avi", "mkv", "wmv", "webm"} with multiple selections allowed
+        set theFiles to choose file with prompt "비디오 파일 선택" of type {"public.movie", "org.webmproject.webm", "webm", "mp4", "mov", "avi", "mkv", "wmv"} with multiple selections allowed
         set out to ""
         repeat with aFile in theFiles
             set out to out & POSIX path of aFile & "\n"
@@ -142,6 +153,97 @@ def get_file_info(path):
             "height": height,
             "fps": fps
         }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+# 프록시 저장용 폴더 설정 및 생성
+PROXY_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".proxies")
+if not os.path.exists(PROXY_DIR):
+    os.makedirs(PROXY_DIR, exist_ok=True)
+
+@eel.expose
+def request_proxy(path, file_id):
+    """프록시 생성을 요청합니다. 캐시가 있으면 즉시 반환하고, 없으면 백그라운드에서 생성을 시작합니다."""
+    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    import hashlib
+    
+    # 지능형 해시 생성 (경로 + 크기 + 수정시간)
+    try:
+        file_stat = os.stat(path)
+        fingerprint = f"{path}_{file_stat.st_size}_{file_stat.st_mtime}"
+        path_hash = hashlib.md5(fingerprint.encode()).hexdigest()
+        proxy_path = os.path.join(PROXY_DIR, f"proxy_{path_hash}.mp4")
+        
+        # 캐시된 프록시가 이미 존재하면 즉시 성공 반환 (UI 알림 생략)
+        if os.path.exists(proxy_path):
+            return {"status": "success", "proxy_path": proxy_path}
+
+        # 정보 가져오기 및 백그라운드 워커 실행
+        info = get_file_info(path)
+        total_duration = info.get('duration', 0)
+        
+        # threading.Thread를 사용하여 완전한 백그라운드 스레드로 실행 (gevent 블로킹 원천 차단)
+        import threading
+        threading.Thread(target=generate_proxy_worker, args=(path, file_id, proxy_path, total_duration, ffmpeg_exe), daemon=True).start()
+        
+        return {"status": "processing"}
+        
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+def generate_proxy_worker(path, file_id, proxy_path, total_duration, ffmpeg_exe):
+    """백그라운드에서 실제로 FFmpeg를 실행하는 워커입니다."""
+    try:
+        cmd = [
+            ffmpeg_exe, "-i", path,
+            "-vf", "scale='min(1280,iw)':-2",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "32",
+            "-c:a", "aac", "-b:a", "128k", "-y", proxy_path
+        ]
+        
+        process = subprocess.Popen(cmd, stderr=subprocess.PIPE, text=True, errors='ignore', universal_newlines=True)
+        
+        for line in process.stderr:
+            if "time=" in line and total_duration > 0:
+                time_match = re.search(r"time=(\d+):(\d+):(\d+\.\d+)", line)
+                if time_match:
+                    h, m, s = time_match.groups()
+                    current_time = int(h) * 3600 + int(m) * 60 + float(s)
+                    progress = min(99, int((current_time / total_duration) * 100))
+                    eel.update_proxy_progress(file_id, progress)
+        
+        process.wait()
+        if process.returncode == 0:
+            eel.update_proxy_progress(file_id, 100)
+            eel.proxy_completed(file_id, {"status": "success", "proxy_path": proxy_path})
+        else:
+            eel.proxy_completed(file_id, {"status": "error", "message": "FFmpeg 변환 실패"})
+            
+    except Exception as e:
+        eel.proxy_completed(file_id, {"status": "error", "message": str(e)})
+
+@eel.expose
+def open_file_location(path):
+    """파일이 있는 폴더를 열고 해당 파일을 선택 상태로 표시합니다."""
+    import platform
+    try:
+        if platform.system() == 'Windows':
+            subprocess.run(['explorer', '/select,', os.path.normpath(path)])
+        elif platform.system() == 'Darwin':
+            subprocess.run(['open', '-R', path])
+        return {"status": "success"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@eel.expose
+def clear_proxy_cache():
+    """저장된 모든 프록시 파일을 삭제하여 용량을 확보합니다."""
+    import shutil
+    try:
+        if os.path.exists(PROXY_DIR):
+            shutil.rmtree(PROXY_DIR)
+            os.makedirs(PROXY_DIR, exist_ok=True)
+        return {"status": "success"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -267,8 +369,8 @@ if __name__ == '__main__':
                       ])
         if current_os == 'Darwin':
             # 맥: pywebview 네이티브 엔진 사용 - 크롬 아이콘 방지 및 사파리 코덱 활용
-            # 맥에서는 pywebview가 독(Dock) 아이콘 관리와 MP4 재생에 가장 탁월합니다.
             import webview
+            from webview.dom import DOMEventHandler
             import threading
             import time
 
@@ -279,8 +381,25 @@ if __name__ == '__main__':
             t.start()
             
             time.sleep(1) # 서버 시작 대기
-            webview.create_window('GIF Converter', 'http://127.0.0.1:8889', width=1280, height=850)
-            webview.start()
+            window = webview.create_window('GIF Converter', 'http://127.0.0.1:8889', width=1280, height=850)
+            
+            # 드래그 앤 드롭 파일 경로 수신 핸들러
+            def on_drop(e):
+                try:
+                    # e는 dict 형태로 들어오며 dataTransfer 내부에 파일 정보가 있습니다.
+                    files = e.get('dataTransfer', {}).get('files', [])
+                    paths = [f.get('pywebviewFullPath') for f in files if f.get('pywebviewFullPath')]
+                    if paths:
+                        eel.handle_dropped_files_from_python(paths)
+                except Exception as ex:
+                    print(f"드롭 처리 중 오류: {ex}")
+
+            def init_logic(win):
+                # DOM 이벤트를 통해 파일 경로를 가로챕니다.
+                win.dom.document.events.dragover += DOMEventHandler(None, prevent_default=True)
+                win.dom.document.events.drop += DOMEventHandler(on_drop, prevent_default=True)
+            
+            webview.start(init_logic, window)
         else:
             # 기타 (리눅스 등)
             eel.start('index.html', size=(1280, 800), port=8889, mode='default')

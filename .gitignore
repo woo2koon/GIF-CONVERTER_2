@@ -1,0 +1,23 @@
+# Proxy files
+.proxies/
+
+# macOS system files
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+env/
+venv/
+.env
+
+# Build artifacts
+dist/
+build/
+*.spec
