@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 
-<html lang="en">
+<html lang="ko" style="background-color: #f5f7f9;">
 
 <head>
     <meta charset="utf-8" />
@@ -185,13 +185,13 @@
                 <div
                     class="w-full aspect-video bg-black rounded-xl shadow-2xl overflow-hidden relative group flex items-center justify-center">
                     <video id="main-player" class="w-full h-full object-contain hidden" playsinline
-                        webkit-playsinline></video>
+                        webkit-playsinline disablePictureInPicture></video>
                     <div id="placeholder-msg" class="text-on-surface-variant font-medium text-white">비디오를 선택하거나 업로드하세요
                     </div>
                 </div>
 
                 <!-- Professional Player Controls -->
-                <div id="player-controls" class="w-full mt-4 flex items-center justify-between px-4 py-3 bg-surface-container-high/50 rounded-xl border border-white/20 backdrop-blur-sm">
+                <div id="player-controls" class="w-full mt-4 flex items-center justify-between px-4 py-3 bg-surface-container-high rounded-xl border border-white/20 shadow-sm" style="will-change: transform; backface-visibility: hidden;">
                     <div class="flex items-center gap-4">
                         <div class="flex items-center bg-slate-200/50 rounded-lg p-1">
                             <button id="step-back-btn" class="w-8 h-8 flex items-center justify-center hover:bg-white rounded transition-all text-on-surface-variant">
@@ -204,21 +204,21 @@
                                 <span class="material-symbols-outlined text-[20px]">chevron_right</span>
                             </button>
                         </div>
-                        <div class="flex items-center gap-2 font-mono text-sm font-bold text-on-surface-variant">
+                        <div class="flex items-center gap-2 font-mono text-sm font-bold text-on-surface-variant" style="font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; transform: translateZ(0);">
                             <span id="current-time-display" class="text-indigo-600">00:00.0</span>
                             <span class="opacity-30">/</span>
                             <span id="total-time-display">00:00.0</span>
                         </div>
                     </div>
 
-                    <div class="flex items-center gap-4">
+                    <div class="flex items-center">
                          <!-- Volume Controls -->
-                         <div class="flex items-center gap-2 text-on-surface-variant">
-                            <button id="mute-btn" class="hover:text-indigo-600 transition-colors">
-                                <span id="volume-icon" class="material-symbols-outlined text-[20px]">volume_up</span>
+                         <div class="flex items-center gap-2.5 text-on-surface-variant bg-slate-200/50 px-3 py-1.5 rounded-lg border border-white/20">
+                            <button id="mute-btn" class="flex items-center justify-center hover:text-indigo-600 transition-colors">
+                                <span id="volume-icon" class="material-symbols-outlined text-[20px] leading-none">volume_up</span>
                             </button>
                             <input id="volume-slider" type="range" min="0" max="1" step="0.05" value="0.8"
-                                class="w-20 h-1.5 rounded-full appearance-none cursor-pointer accent-indigo-500" />
+                                class="w-20 h-1 rounded-full appearance-none cursor-pointer accent-indigo-600" />
                          </div>
                     </div>
                 </div>
@@ -261,7 +261,7 @@
                             </div>
                             
                             <!-- Playhead -->
-                            <div id="playhead" class="absolute h-full w-0.5 bg-rose-500 z-30 pointer-events-none">
+                            <div id="playhead" class="absolute h-full w-0.5 bg-rose-500 z-30 pointer-events-none" style="left: 0; will-change: transform;">
                                 <div class="absolute -top-0.5 -left-[4px] w-2.5 h-2.5 bg-rose-500 rounded-sm rotate-45"></div>
                             </div>
                         </div>
@@ -357,10 +357,19 @@
                 <button id="convert-btn"
                     class="w-full bg-gradient-to-r from-primary to-primary-container text-white py-5 rounded-xl font-manrope font-extrabold text-xl uppercase tracking-widest shadow-lg shadow-primary/30 hover:shadow-primary/50 transition-all flex items-center justify-center gap-2 group">GIF로
                     변환</button>
-                <p id="status-msg" class="text-xs text-center text-on-surface-variant mt-4 font-manrope">대기 중...</p>
+
             </div>
         </aside>
     </div>
+
+    <!-- Floating Status Bar -->
+    <div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none">
+        <div id="status-bar" class="bg-white/80 backdrop-blur-md border border-white/20 shadow-xl px-6 py-2 rounded-full transition-all duration-300 opacity-0 scale-95 flex items-center gap-3">
+            <div class="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
+            <p id="status-msg" class="text-xs font-manrope font-bold text-on-surface tracking-wide">대기 중...</p>
+        </div>
+    </div>
+    
     <script src="app.js"></script>
 </body>
 

@@ -6,6 +6,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const placeholderMsg = document.getElementById('placeholder-msg');
     const convertBtn = document.getElementById('convert-btn');
     const statusMsg = document.getElementById('status-msg');
+    const statusBar = document.getElementById('status-bar');
+
+    function updateStatus(text) {
+        if (!text || text === "대기 중...") {
+            statusBar.classList.add('opacity-0', 'scale-95');
+            statusBar.classList.remove('opacity-100', 'scale-100');
+        } else {
+            statusMsg.textContent = text;
+            statusBar.classList.remove('opacity-0', 'scale-95');
+            statusBar.classList.add('opacity-100', 'scale-100');
+        }
+    }
 
     const fpsSlider = document.getElementById('fps-slider');
     const fpsDisplay = document.getElementById('fps-display');
@@ -37,7 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const volumeSlider = document.getElementById('volume-slider');
     const muteBtn = document.getElementById('mute-btn');
     const volumeIcon = document.getElementById('volume-icon');
-
+    let lastVolume = 0.8;
     let currentVideoPath = null;
     let currentVideoFileName = null;
     let videoDuration = 0;
@@ -107,7 +119,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // NATIVE FILE PICKER
     addBtn.addEventListener('click', async () => {
-        statusMsg.textContent = "탐색기에서 파일을 선택해주세요...";
+        updateStatus("탐색기에서 파일을 선택해주세요...");
         const paths = await eel.pick_videos()();
 
         if (!paths || paths.length === 0) {
@@ -116,26 +128,31 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         for (const path of paths) {
-            statusMsg.textContent = "파일 정보 가져오는 중...";
+            updateStatus("파일 정보 가져오는 중...");
             const res = await eel.get_file_info(path)();
 
             if (res.status === 'success') {
                 // 맥(Safari)의 강력한 보안 정책 때문에 http:// 로 띄운 창에서는 file:// 에 직접 접근이 차단됩니다.
                 // 따라서 다시 파이썬 로컬 서버를 거치는 안전한 방식으로 되돌립니다.
                 const cleanPath = res.path.startsWith('/') ? res.path.slice(1) : res.path;
-                const objectUrl = `/local_file/${encodeURI(cleanPath)}`;
+                const normalizedPath = cleanPath.replace(/\\/g, '/');
+                const safePath = normalizedPath.split('/').map(encodeURIComponent).join('/');
+                const objectUrl = `/local_file/${safePath}`;
 
                 const fileObj = {
                     name: res.name,
                     path: res.path,
                     objectUrl: objectUrl,
                     size: res.size,
-                    fps: res.fps || 30.0, // 파이썬에서 추출한 원본 FPS 저장
+                    fps: res.fps || 30.0,
+                    duration: res.duration || 0,
+                    width: res.width || 1280,
+                    height: res.height || 720,
                     trimStart: 0,
-                    trimEnd: 0,
-                    duration: 0,
+                    trimEnd: res.duration || 0,
+                    currentTime: 0,
                     filmstrip: [],
-                    aspectRatio: 16 / 9
+                    aspectRatio: res.width / res.height || 16 / 9
                 };
                 uploadedFiles.push(fileObj);
                 addLibraryItem(fileObj);
@@ -143,7 +160,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (uploadedFiles.length === 1 || !selectedFileObj) {
                     selectVideo(fileObj);
                 }
-                statusMsg.textContent = "파일 추가됨.";
+                updateStatus("파일 추가됨.");
+                setTimeout(() => updateStatus(""), 2000);
             } else {
                 statusMsg.textContent = "오류: " + res.message;
             }
@@ -229,77 +247,71 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function selectVideo(fileObj) {
+        if (currentVideoPath === fileObj.path && !mainPlayer.error) return;
+
+        // 상태 초기화
         selectedFileObj = fileObj;
         currentVideoPath = fileObj.path;
         currentVideoFileName = fileObj.name;
-
+        
         document.getElementById('header-filename').textContent = fileObj.name;
-        mainPlayer.classList.remove('hidden');
-        placeholderMsg.classList.add('hidden');
+        document.getElementById('header-resolution').textContent = "로딩 중...";
         
-        // 타임라인 영역 표시 (항상 보이게 했으므로 보장)
-        const tArea = document.getElementById('timeline-area');
-        if (tArea) tArea.classList.remove('hidden');
-
-        mainPlayer.onloadedmetadata = () => {
-            fileObj.duration = mainPlayer.duration;
-            fileObj.aspectRatio = mainPlayer.videoWidth / mainPlayer.videoHeight;
-
-            // 영상 정보 표시 (해상도, 형식, 러닝타임, 원본 FPS)
-            const w = mainPlayer.videoWidth;
-            const h = mainPlayer.videoHeight;
-            
-            // 러닝타임을 00m 00s 형식으로 변환 (소수점 제거)
-            const totalSecsRounded = Math.round(fileObj.duration);
-            const displayMins = Math.floor(totalSecsRounded / 60);
-            const displaySecs = totalSecsRounded % 60;
-            const durStr = `${displayMins.toString().padStart(2, '0')}m ${displaySecs.toString().padStart(2, '0')}s`;
-            
-            const ext = fileObj.name.split('.').pop().toUpperCase();
-            const sourceFps = fileObj.fps ? fileObj.fps.toFixed(2) : "30.00";
-            
-            document.getElementById('header-resolution').textContent = `${w}x${h} • ${ext} • ${durStr} • ${sourceFps} FPS`;
-
-            if (fileObj.trimEnd === 0) {
-                fileObj.trimEnd = fileObj.duration;
-            }
-            videoDuration = fileObj.duration;
-            totalTimeDisplay.textContent = formatTime(fileObj.duration);
-            
-            timelineTrack.style.width = "100%";
-
-            updateTimelineUI();
-            // generateFilmstrip(fileObj); // 썸네일 생성 기능 제거
-
-        };
-
-        mainPlayer.onerror = (e) => {
-            console.error("Video loading error:", e);
-            statusMsg.textContent = "비디오 로드 오류: 파일 경로를 확인해주세요.";
-        };
-
-        // 비디오 화면 클릭 시 재생/일시정지 토글
-        mainPlayer.addEventListener('click', togglePlayPause);
-        
-        // 아이콘 즉각 반응을 위한 네이티브 이벤트 리스너 추가
-        mainPlayer.addEventListener('play', () => {
-            if (playIcon) playIcon.textContent = 'pause';
-            // 비디오가 재생을 시작할 때 렌더 루프 강제 재가동 (rvfc 특성 대응)
-            if ('requestVideoFrameCallback' in mainPlayer) {
-                mainPlayer.requestVideoFrameCallback(updateUIFrame);
-            }
-        });
-
-        mainPlayer.addEventListener('pause', () => {
-            if (playIcon) playIcon.textContent = 'play_arrow';
-        });
-
-        // Safari needs explicit load() call sometimes
-        mainPlayer.src = fileObj.objectUrl;
+        // 이전 리소스 해제 (로딩 오류 방지 핵심)
+        mainPlayer.pause();
+        mainPlayer.src = "";
         mainPlayer.load();
+
+        // 새 소스 로드
+        setTimeout(() => {
+            const timestamp = Date.now();
+            mainPlayer.src = `${fileObj.objectUrl}?t=${timestamp}`;
+            mainPlayer.load();
+            
+            mainPlayer.classList.remove('hidden');
+            placeholderMsg.classList.add('hidden');
+            const tArea = document.getElementById('timeline-area');
+            if (tArea) tArea.classList.remove('hidden');
+        }, 50);
     }
 
-    // 재생/일시정지 통합 제어 함수 (반응성 최적화)
+    mainPlayer.addEventListener('click', togglePlayPause);
+    
+    mainPlayer.addEventListener('play', () => {
+        if (playIcon) playIcon.textContent = 'pause';
+        if ('requestVideoFrameCallback' in mainPlayer) {
+            mainPlayer.requestVideoFrameCallback(updateUIFrame);
+        }
+    });
+
+    mainPlayer.addEventListener('pause', () => {
+        if (playIcon) playIcon.textContent = 'play_arrow';
+    });
+
+    mainPlayer.onloadedmetadata = () => {
+        if (!selectedFileObj) return;
+        
+        // 백엔드에서 온 정확한 정보를 우선 사용
+        videoDuration = selectedFileObj.duration || mainPlayer.duration;
+        selectedFileObj.duration = videoDuration;
+
+        const w = mainPlayer.videoWidth || selectedFileObj.width;
+        const h = mainPlayer.videoHeight || selectedFileObj.height;
+        const durStr = formatTime(videoDuration);
+        const ext = selectedFileObj.name.split('.').pop().toUpperCase();
+        
+        document.getElementById('header-resolution').textContent = 
+            `${w}x${h} • ${ext} • ${durStr} • ${selectedFileObj.fps.toFixed(2)} FPS`;
+
+        if (selectedFileObj.trimEnd === 0) {
+            selectedFileObj.trimEnd = videoDuration;
+        }
+        
+        totalTimeDisplay.textContent = formatTime(videoDuration);
+        timelineTrack.style.width = "100%";
+        updateTimelineUI();
+    };
+
     function togglePlayPause() {
         if (!selectedFileObj) return;
         if (mainPlayer.paused) {
@@ -307,7 +319,6 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             mainPlayer.pause();
         }
-        // UI 아이콘은 updateUIFrame 루프에서 자동으로 즉시 업데이트됨
     }
 
     function formatTime(seconds) {
@@ -325,20 +336,19 @@ document.addEventListener('DOMContentLoaded', () => {
         return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}:${frames.toString().padStart(2, '0')}`;
     }
 
-    function updateTimelineUI() {
+    // 트림 구간(시작/종료) UI만 업데이트 (자주 발생하지 않음)
+    function updateTrimUI() {
         if (!selectedFileObj || selectedFileObj.duration === 0) return;
 
         const duration = selectedFileObj.duration;
         const startPct = (selectedFileObj.trimStart / duration) * 100;
         const endPct = (selectedFileObj.trimEnd / duration) * 100;
 
-        // 핸들 위치 (중앙 정렬)
         handleLeft.style.left = `${startPct}%`;
         handleLeft.style.transform = 'translateX(-50%)';
         handleRight.style.left = `${endPct}%`;
         handleRight.style.transform = 'translateX(-50%)';
 
-        // 인아웃 구간 외부 마스크 (어둡게 처리)
         const mLeft = document.getElementById('mask-left');
         const mRight = document.getElementById('mask-right');
         if (mLeft) mLeft.style.width = `${startPct}%`;
@@ -346,96 +356,142 @@ document.addEventListener('DOMContentLoaded', () => {
 
         trimStartDisplay.textContent = `시작: ${formatTime(selectedFileObj.trimStart)}`;
         trimEndDisplay.textContent = `종료: ${formatTime(selectedFileObj.trimEnd)}`;
-        
-        const currentPct = (mainPlayer.currentTime / duration) * 100;
-        playhead.style.left = `${currentPct}%`;
+    }
 
-        // 타임코드 업데이트
-        currentTimeDisplay.textContent = formatTime(mainPlayer.currentTime);
+    // 재생 바 및 타임코드 전용 업데이트 (매 프레임 발생 - 고성능 필요)
+    function updatePlayheadUI(forceTime = null) {
+        if (!selectedFileObj || selectedFileObj.duration === 0) return;
         
-        // 재생 아이콘 상태 업데이트
-        if (mainPlayer.paused) {
-            playIcon.textContent = 'play_arrow';
-        } else {
-            playIcon.textContent = 'pause';
+        const duration = selectedFileObj.duration;
+        const timeToUse = forceTime !== null ? forceTime : mainPlayer.currentTime;
+        const currentPct = (timeToUse / duration);
+        
+        const rect = timelineTrack.getBoundingClientRect();
+        playhead.style.transform = `translateX(${currentPct * rect.width}px)`;
+
+        const timeStr = formatTime(timeToUse);
+        if (currentTimeDisplay.textContent !== timeStr) {
+            currentTimeDisplay.textContent = timeStr;
+        }
+        
+        const targetIcon = mainPlayer.paused ? 'play_arrow' : 'pause';
+        if (playIcon.textContent !== targetIcon) {
+            playIcon.textContent = targetIcon;
         }
     }
 
-    document.addEventListener('keydown', (e) => {
-        if (!selectedFileObj) return;
-        const curTime = mainPlayer.currentTime;
-        const duration = selectedFileObj.duration;
-        const sourceFps = selectedFileObj.fps || 30;
-        const frameTime = 1 / sourceFps; // 1프레임당 시간
+    // 전체 UI 업데이트 (하위 호환성용)
+    function updateTimelineUI(forceTime = null) {
+        updateTrimUI();
+        updatePlayheadUI(forceTime);
+    }
 
-        // Option(Alt) 조합키 처리
-        if (e.altKey) {
-            if (e.code === 'KeyI') {
+    playPauseBtn.addEventListener('click', togglePlayPause);
+
+    // 포커스 가로채기 방지 (버튼/슬라이더 클릭 후 포커스 해제)
+    document.addEventListener('mousedown', (e) => {
+        if (e.target.closest('button') || e.target.type === 'range') {
+            // 약간의 지연을 주어 클릭 이벤트는 발생하게 하고 포커스만 제거
+            setTimeout(() => {
+                if (document.activeElement instanceof HTMLElement) {
+                    document.activeElement.blur();
+                }
+            }, 100);
+        }
+    });
+
+    // Keyboard Shortcuts (Unified)
+    document.addEventListener('keydown', (e) => {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
+        if (!selectedFileObj) return;
+
+        const isAlt = e.altKey;
+        const key = e.key.toLowerCase();
+
+        // Alt Combinations (Reset)
+        if (isAlt) {
+            if (key === 'i') {
                 e.preventDefault();
                 selectedFileObj.trimStart = 0;
-                statusMsg.textContent = "시작점(IN) 초기화됨";
                 updateTimelineUI();
-            } else if (e.code === 'KeyO') {
+                updateStatus("시작 지점(IN) 초기화됨");
+                setTimeout(() => updateStatus(""), 1500);
+            } else if (key === 'o') {
                 e.preventDefault();
-                selectedFileObj.trimEnd = duration;
-                statusMsg.textContent = "종료점(OUT) 초기화됨";
+                selectedFileObj.trimEnd = selectedFileObj.duration;
                 updateTimelineUI();
-            } else if (e.code === 'KeyX') {
+                updateStatus("종료 지점(OUT) 초기화됨");
+                setTimeout(() => updateStatus(""), 1500);
+            } else if (key === 'x') {
                 e.preventDefault();
                 selectedFileObj.trimStart = 0;
-                selectedFileObj.trimEnd = duration;
-                statusMsg.textContent = "전체 구간 초기화됨";
+                selectedFileObj.trimEnd = selectedFileObj.duration;
                 updateTimelineUI();
+                updateStatus("마커 전체 초기화됨");
+                setTimeout(() => updateStatus(""), 1500);
             }
             return;
         }
 
-        // e.code를 사용하면 한글/영문 모드에 상관없이 작동하며,
-        // preventDefault()를 통해 맥의 "뽁!" 소리를 방지합니다.
-        if (e.code === 'KeyI') {
-            e.preventDefault();
-            selectedFileObj.trimStart = Math.min(curTime, selectedFileObj.trimEnd - 0.1);
-            statusMsg.textContent = "시작점(IN) 설정됨";
-            updateTimelineUI();
-        } else if (e.code === 'KeyO') {
-            e.preventDefault();
-            selectedFileObj.trimEnd = Math.max(curTime, selectedFileObj.trimStart + 0.1);
-            statusMsg.textContent = "종료점(OUT) 설정됨";
-            updateTimelineUI();
-        } else if (e.code === 'Space') {
-            e.preventDefault();
-            togglePlayPause();
-        } else if (e.code === 'ArrowLeft') {
-            e.preventDefault();
-            mainPlayer.pause();
-            
-            let jumpFrames = 1;
-            if (e.metaKey && e.shiftKey) jumpFrames = 10; // Cmd + Shift
-            else if (e.shiftKey) jumpFrames = 5;         // Shift
-            
-            mainPlayer.currentTime = Math.max(0, curTime - (frameTime * jumpFrames));
-            updateTimelineUI(); 
-        } else if (e.code === 'ArrowRight') {
-            e.preventDefault();
-            mainPlayer.pause();
-            
-            let jumpFrames = 1;
-            if (e.metaKey && e.shiftKey) jumpFrames = 10; // Cmd + Shift
-            else if (e.shiftKey) jumpFrames = 5;         // Shift
+        switch (e.key) {
+            case ' ':
+                e.preventDefault();
+                togglePlayPause();
+                break;
+            case 'i':
+            case 'I':
+                selectedFileObj.trimStart = mainPlayer.currentTime;
+                if (selectedFileObj.trimStart >= selectedFileObj.trimEnd) {
+                    selectedFileObj.trimEnd = Math.min(selectedFileObj.duration, selectedFileObj.trimStart + 0.1);
+                }
+                updateTimelineUI();
+                updateStatus("시작 지점(IN) 설정됨");
+                setTimeout(() => updateStatus(""), 1500);
+                break;
+            case 'o':
+            case 'O':
+                selectedFileObj.trimEnd = mainPlayer.currentTime;
+                if (selectedFileObj.trimEnd <= selectedFileObj.trimStart) {
+                    selectedFileObj.trimStart = Math.max(0, selectedFileObj.trimEnd - 0.1);
+                }
+                updateTimelineUI();
+                updateStatus("종료 지점(OUT) 설정됨");
+                setTimeout(() => updateStatus(""), 1500);
+                break;
+            case 'ArrowLeft':
+                e.preventDefault();
+                mainPlayer.pause();
+                const fps = selectedFileObj.fps || 30;
+                let jumpBack = 1 / fps; // 1 frame
+                if (e.shiftKey && (e.ctrlKey || e.metaKey)) jumpBack = 10 / fps; // 10 frames
+                else if (e.shiftKey) jumpBack = 5 / fps; // 5 frames
+                
+                mainPlayer.currentTime = Math.max(0, mainPlayer.currentTime - jumpBack);
+                updateTimelineUI();
+                break;
+            case 'ArrowRight':
+                e.preventDefault();
+                mainPlayer.pause();
+                const fpsR = selectedFileObj.fps || 30;
+                let jumpForward = 1 / fpsR; // 1 frame
+                if (e.shiftKey && (e.ctrlKey || e.metaKey)) jumpForward = 10 / fpsR; // 10 frames
+                else if (e.shiftKey) jumpForward = 5 / fpsR; // 5 frames
 
-            mainPlayer.currentTime = Math.min(duration, curTime + (frameTime * jumpFrames));
-            updateTimelineUI();
-        } else if (e.code === 'ArrowUp') {
-            e.preventDefault();
-            mainPlayer.currentTime = selectedFileObj.trimStart; // 시작점(IN)으로 점프
-            updateTimelineUI();
-        } else if (e.code === 'ArrowDown') {
-            e.preventDefault();
-            mainPlayer.currentTime = selectedFileObj.trimEnd; // 종료점(OUT)으로 점프
-            updateTimelineUI();
+                mainPlayer.currentTime = Math.min(selectedFileObj.duration, mainPlayer.currentTime + jumpForward);
+                updateTimelineUI();
+                break;
+            case 'ArrowUp':
+                e.preventDefault();
+                mainPlayer.currentTime = selectedFileObj.trimStart;
+                updateTimelineUI();
+                break;
+            case 'ArrowDown':
+                e.preventDefault();
+                mainPlayer.currentTime = selectedFileObj.trimEnd;
+                updateTimelineUI();
+                break;
         }
     });
-    playPauseBtn.addEventListener('click', togglePlayPause);
 
     // 볼륨 조절 로직
     function updateVolumeSliderFill(val) {
@@ -445,21 +501,28 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     volumeSlider.addEventListener('input', (e) => {
-        const val = e.target.value;
+        const val = parseFloat(e.target.value);
         mainPlayer.volume = val;
-        mainPlayer.muted = (val == 0);
+        mainPlayer.muted = (val === 0);
+        if (val > 0) lastVolume = val;
         updateVolumeIcon();
         updateVolumeSliderFill(val);
     });
 
     muteBtn.addEventListener('click', () => {
         mainPlayer.muted = !mainPlayer.muted;
-        if (!mainPlayer.muted && mainPlayer.volume === 0) {
-            mainPlayer.volume = 0.5;
-            volumeSlider.value = 0.5;
+        
+        if (mainPlayer.muted) {
+            volumeSlider.value = 0;
+        } else {
+            // 음소거 해제 시 이전 볼륨으로 복구 (이전 볼륨이 0이었으면 0.5로)
+            if (lastVolume === 0) lastVolume = 0.5;
+            mainPlayer.volume = lastVolume;
+            volumeSlider.value = lastVolume;
         }
+        
         updateVolumeIcon();
-        updateVolumeSliderFill(mainPlayer.muted ? 0 : mainPlayer.volume);
+        updateVolumeSliderFill(volumeSlider.value);
     });
 
     function updateVolumeIcon() {
@@ -478,14 +541,16 @@ document.addEventListener('DOMContentLoaded', () => {
     stepBackBtn.addEventListener('click', () => {
         if (!selectedFileObj) return;
         mainPlayer.pause();
-        mainPlayer.currentTime = Math.max(0, mainPlayer.currentTime - 0.033);
+        const fps = selectedFileObj.fps || 30;
+        mainPlayer.currentTime = Math.max(0, mainPlayer.currentTime - (1 / fps));
         updateTimelineUI();
     });
 
     stepForwardBtn.addEventListener('click', () => {
         if (!selectedFileObj) return;
         mainPlayer.pause();
-        mainPlayer.currentTime = Math.min(selectedFileObj.duration, mainPlayer.currentTime + 0.033);
+        const fps = selectedFileObj.fps || 30;
+        mainPlayer.currentTime = Math.min(selectedFileObj.duration, mainPlayer.currentTime + (1 / fps));
         updateTimelineUI();
     });
 
@@ -494,6 +559,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let isScrubbing = false;
     let isDraggingLeft = false;
     let isDraggingRight = false;
+    let lastTargetTime = -1; // 마지막으로 강제 이동한 목표 시간
+    let seekLockTimeout = null; // 이동 중 루프 차단 타이머
 
     timelineTrack.addEventListener('mousedown', (e) => {
         if (e.target === handleLeft) {
@@ -516,20 +583,28 @@ document.addEventListener('DOMContentLoaded', () => {
         x = Math.max(0, Math.min(x, rect.width));
         const pct = x / rect.width;
         const time = pct * selectedFileObj.duration;
+        
+        lastTargetTime = time; // 목표 시간 기록
+        if (seekLockTimeout) clearTimeout(seekLockTimeout);
+        seekLockTimeout = setTimeout(() => { lastTargetTime = -1; }, 500); // 0.5초 후 잠금 해제
 
         if (isScrubbing) {
             mainPlayer.currentTime = time;
-            // 스크러빙 시 재생 바를 즉시 이동시켜 반응성을 높임
-            playhead.style.left = `${pct * 100}%`;
+            // 스크러빙 시 즉시 업데이트
+            updatePlayheadUI(time);
         } else if (isDraggingLeft) {
             selectedFileObj.trimStart = Math.max(0, Math.min(time, selectedFileObj.trimEnd - 0.1));
             mainPlayer.currentTime = selectedFileObj.trimStart;
+            updateTrimUI();
+            updatePlayheadUI(selectedFileObj.trimStart);
         } else if (isDraggingRight) {
             selectedFileObj.trimEnd = Math.min(selectedFileObj.duration, Math.max(time, selectedFileObj.trimStart + 0.1));
             mainPlayer.currentTime = selectedFileObj.trimEnd;
+            updateTrimUI();
+            updatePlayheadUI(selectedFileObj.trimEnd);
         }
 
-        updateTimelineUI();
+        // updateTimelineUI(); // Redundant now
     });
 
     document.addEventListener('mouseup', () => {
@@ -544,10 +619,16 @@ document.addEventListener('DOMContentLoaded', () => {
         let x = e.clientX - rect.left;
         x = Math.max(0, Math.min(x, rect.width));
         const pct = x / rect.width;
-        mainPlayer.currentTime = pct * selectedFileObj.duration;
+        const targetTime = pct * selectedFileObj.duration;
         
+        // 목표 시간 기록 및 잠금
+        lastTargetTime = targetTime;
+        if (seekLockTimeout) clearTimeout(seekLockTimeout);
+        seekLockTimeout = setTimeout(() => { lastTargetTime = -1; }, 500);
+
         // 클릭 즉시 UI 업데이트하여 반응성 극대화
-        updateTimelineUI();
+        updatePlayheadUI(targetTime);
+        mainPlayer.currentTime = targetTime;
     }
 
     resetBtn.addEventListener('click', () => {
@@ -560,40 +641,33 @@ document.addEventListener('DOMContentLoaded', () => {
     mainPlayer.addEventListener('timeupdate', () => {
         // 드래그 중이거나 스크러빙 중일 때는 루프 로직을 실행하지 않음
         if (!selectedFileObj || isDraggingLeft || isDraggingRight || isScrubbing) return;
+        
+        // 사용자가 일시정지 상태에서 타임라인을 탐색할 때는 루프 로직(강제 튕김)을 차단
+        if (mainPlayer.paused) return;
 
         const currentTime = mainPlayer.currentTime;
         const start = selectedFileObj.trimStart;
         const end = selectedFileObj.trimEnd;
 
-        // 사파리 특성을 고려한 루프 로직
+        // 사파리 특성을 고려한 루프 로직 (재생 중에만 작동)
         if (currentTime < start - 0.3) {
             mainPlayer.currentTime = start;
         }
 
         if (currentTime >= end) {
             mainPlayer.currentTime = start;
-            if (mainPlayer.paused) mainPlayer.play().catch(() => { });
+            mainPlayer.play().catch(() => { });
         }
     });
 
-    // 완벽한 프레임 동기화를 위한 렌더 루프
-    // requestVideoFrameCallback을 지원하면 영상의 실제 프레임 시간에 맞춰 렌더링하고, 없으면 requestAnimationFrame 사용
     function updateUIFrame(now, metadata) {
         if (selectedFileObj && !isScrubbing && !isDraggingLeft && !isDraggingRight) {
-            // metadata.mediaTime이 있으면 가장 정확한 비디오의 프레임 시간 사용
             const currentTime = metadata && metadata.mediaTime ? metadata.mediaTime : mainPlayer.currentTime;
-            const duration = selectedFileObj.duration;
-            if (duration > 0) {
-                const pct = (currentTime / duration) * 100;
-                playhead.style.left = `${pct}%`;
-                currentTimeDisplay.textContent = formatTime(currentTime);
-            }
+            updatePlayheadUI(currentTime);
         }
         
-        if ('requestVideoFrameCallback' in mainPlayer) {
+        if ('requestVideoFrameCallback' in mainPlayer && !mainPlayer.paused) {
             mainPlayer.requestVideoFrameCallback(updateUIFrame);
-        } else {
-            requestAnimationFrame(updateUIFrame);
         }
     }
     
@@ -616,23 +690,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="flex items-center">
                     <input type="checkbox" class="lib-checkbox w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer" data-index="${index}" />
                 </div>
-            <!-- Modern Timeline Scrubber -->
-            <div id="timeline-container" class="w-full mt-8 px-4 hidden">
-                <div class="relative h-6 bg-[#333] rounded-sm select-none cursor-pointer" id="timeline-track">
-                    <!-- Selected Range Highlight -->
-                    <div id="trim-range" class="absolute h-full bg-white/10 border-x border-white/30 z-10"></div>
-                    
-                    <!-- Handles -->
-                    <div id="handle-left" class="absolute h-full w-2 bg-white cursor-ew-resize z-20"></div>
-                    <div id="handle-right" class="absolute h-full w-2 bg-white cursor-ew-resize z-20"></div>
-                    
-                    <!-- Playhead (The white line with top indicator) -->
-                    <div id="playhead" class="absolute h-full w-[2px] bg-white z-30 pointer-events-none">
-                        <div class="absolute -top-1 -left-[5px] w-3 h-3 bg-white rotate-45"></div>
-                    </div>
-                </div>
-            </div>
-          <div class="flex flex-col justify-center overflow-hidden">
+                <div class="flex flex-col justify-center overflow-hidden">
                     <span class="truncate font-semibold text-on-surface">${fileObj.name}</span>
                     <span class="text-xs text-slate-500">${sizeMb} MB</span>
                 </div>
@@ -683,7 +741,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             for (let i = 0; i < selectedFiles.length; i++) {
                 const fileObj = selectedFiles[i];
-                statusMsg.textContent = `변환 중... (${i + 1}/${selectedFiles.length}) : ${fileObj.name}`;
+                updateStatus(`변환 중... (${i + 1}/${selectedFiles.length}) : ${fileObj.name}`);
 
                 let outName = "output_" + fileObj.name.replace(/\.[^/.]+$/, "") + ".gif";
                 const start = fileObj.trimStart;
@@ -693,14 +751,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if (res.status === 'success') {
                     successCount++;
-                    statusMsg.textContent = `${fileObj.name} 완료! (outputs 폴더 확인)`;
-
-                    const a = document.createElement('a');
-                    a.href = res.data;
-                    a.download = outName;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
+                    updateStatus(`${fileObj.name} 완료! (다운로드 폴더 확인)`);
 
                     await new Promise(r => setTimeout(r, 500));
                 } else {
@@ -708,9 +759,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     alert(`오류 (${fileObj.name}): ` + res.message);
                 }
             }
-            statusMsg.textContent = `완료! 총 ${successCount}개 변환 완료.`;
+            updateStatus(`완료! 총 ${successCount}개 변환 완료.`);
+            setTimeout(() => updateStatus(""), 4000);
         } catch (error) {
-            statusMsg.textContent = "변환 실패: " + error;
+            updateStatus("변환 실패: " + error);
         } finally {
             convertBtn.disabled = false;
             convertBtn.style.opacity = '1';

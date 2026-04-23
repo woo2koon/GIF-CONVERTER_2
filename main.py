@@ -10,10 +10,10 @@ eel.init('web')
 
 @eel.btl.route('/local_file/<filepath:path>')
 def server_local_file(filepath):
-    import bottle
     import os
     import platform
     import mimetypes
+    import base64
     from urllib.parse import unquote
 
     # URL 디코딩 및 경로 정리
@@ -21,8 +21,11 @@ def server_local_file(filepath):
     
     # 윈도우에서 드라이브 문자 처리
     if platform.system() == 'Windows':
-        if filepath.startswith('/') and ':' in filepath[1:3]:
+        # URL에서 온 경로가 /C:/... 형식이면 앞의 / 제거
+        if filepath.startswith('/') and (len(filepath) >= 3 and filepath[1:3] == ':/' or filepath[1:3] == ':\\'):
             filepath = filepath.lstrip('/')
+        # 역슬래시를 슬래시로 통일
+        filepath = filepath.replace('\\', '/')
     else:
         # 맥/리눅스: 절대 경로 확보
         if not filepath.startswith('/'):
@@ -97,25 +100,46 @@ def get_file_info(path):
         size = os.path.getsize(path)
         name = os.path.basename(path)
         
-        # FFmpeg를 이용해 영상의 원본 FPS 추출
-        fps = 30.0 # 기본값
+        # FFmpeg를 이용해 영상의 메타데이터 추출
+        duration = 0.0
+        width = 1280
+        height = 720
+        fps = 30.0
+        
         try:
             ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+            # ffprobe 대신 ffmpeg -i를 사용해 정보 추출
             cmd = [ffmpeg_exe, "-i", path]
-            # ffmpeg -i 출력은 stderr로 나옴
-            result = subprocess.run(cmd, stderr=subprocess.PIPE, text=True)
-            # " 23.98 fps," 같은 문자열 찾기
-            fps_match = re.search(r'(\d+(?:\.\d+)?)\s+fps', result.stderr)
+            result = subprocess.run(cmd, stderr=subprocess.PIPE, text=True, errors='ignore')
+            output = result.stderr
+            
+            # 길이 추출: Duration: 00:00:05.14
+            dur_match = re.search(r"Duration:\s+(\d+):(\d+):(\d+\.\d+)", output)
+            if dur_match:
+                h, m, s = dur_match.groups()
+                duration = int(h) * 3600 + int(m) * 60 + float(s)
+            
+            # 해상도 추출: Video: ..., 1920x1080, ...
+            res_match = re.search(r",\s+(\d+)x(\d+)\s*[,\[]", output)
+            if res_match:
+                width = int(res_match.group(1))
+                height = int(res_match.group(2))
+                
+            # FPS 추출
+            fps_match = re.search(r'(\d+(?:\.\d+)?)\s+fps', output)
             if fps_match:
                 fps = float(fps_match.group(1))
         except Exception as ffmpeg_err:
-            print(f"FPS 추출 실패 (기본값 30 사용): {ffmpeg_err}")
+            print(f"메타데이터 추출 실패: {ffmpeg_err}")
 
         return {
             "status": "success",
             "name": name,
             "size": size,
             "path": path,
+            "duration": duration,
+            "width": width,
+            "height": height,
             "fps": fps
         }
     except Exception as e:
@@ -216,37 +240,48 @@ def convert_to_gif(input_path, output_name, start_time, end_time, fps, resolutio
 
 if __name__ == '__main__':
     import sys
-    import time
-    import threading
-    import webview  # PySide6 대신 pywebview 사용
-
-    print("--- 프로그램 시작 중 (Native WebKit 모드) ---")
     
-    # 1. Eel 초기화
+    print("--- 프로그램 시작 중 (Standalone App 모드) ---")
+    
     eel.init('web')
 
-    # 2. Eel 서버를 별도의 OS 스레드에서 실행
-    def run_eel():
-        try:
-            eel.start('index.html', mode=None, port=8889, host='127.0.0.1', block=True)
-        except Exception as e:
-            print(f"Eel 서버 에러: {e}")
+    # 운영체제별 최적화된 실행 방식 선택
+    import platform
+    current_os = platform.system()
 
-    eel_thread = threading.Thread(target=run_eel, daemon=True)
-    eel_thread.start()
+    try:
+        if current_os == 'Windows':
+            # 윈도우: 엣지 엔진(WebView2) 사용 - 코덱 지원 및 단독 앱 느낌
+            eel.start('index.html', 
+                      size=(1280, 800), 
+                      port=8889, 
+                      mode='edge', 
+                      cmdline_args=[
+                          '--app-id=gif-converter', 
+                          '--disable-http-cache',
+                          '--hide-scrollbars',
+                          '--window-name="GIF Converter"'
+                      ])
+        elif current_os == 'Darwin':
+            # 맥: pywebview 네이티브 엔진 사용 - 크롬 아이콘 방지 및 사파리 코덱 활용
+            # 맥에서는 pywebview가 독(Dock) 아이콘 관리와 MP4 재생에 가장 탁월합니다.
+            import webview
+            import threading
+            import time
 
-    # 서버 초기화 대기
-    time.sleep(1.5)
-
-    # 3. pywebview를 사용하여 맥의 순정 Safari 엔진 창 띄우기
-    # 이 방식은 MP4 코덱을 완벽하게 지원합니다.
-    print("네이티브 창 생성 중...")
-    webview.create_window(
-        'GIF Converter', 
-        'http://127.0.0.1:8889/index.html',
-        width=1280,
-        height=800
-    )
-    
-    print("--- 모든 준비 완료 ---")
-    webview.start()
+            def start_eel():
+                eel.start('index.html', mode=None, port=8889, host='127.0.0.1')
+            
+            t = threading.Thread(target=start_eel, daemon=True)
+            t.start()
+            
+            time.sleep(1) # 서버 시작 대기
+            webview.create_window('GIF Converter', 'http://127.0.0.1:8889', width=1280, height=800)
+            webview.start()
+        else:
+            # 기타 (리눅스 등)
+            eel.start('index.html', size=(1280, 800), port=8889, mode='default')
+            
+    except Exception as e:
+        print(f"창 실행 실패: {e}")
+        eel.start('index.html', size=(1280, 800), port=8889, mode='default')
