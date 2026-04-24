@@ -399,7 +399,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     id: `draft_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
                     start: 0,
                     end: res.duration || 0,
-                    fps: res.fps || 24,
+                    fps: 24, // 기본값은 무조건 24프레임으로 고정
                     resolution: "중간 (720p)",
                     numColors: 256,
                     useDither: false,
@@ -415,7 +415,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 uploadedFiles.push(fileObj);
                 addLibraryItem(fileObj);
 
-                if (isMac && res.name.toLowerCase().endsWith('.webm')) {
+                if (isMac && res.name.toLowerCase().endsWith('.webm') && !proxyPath) {
                     proxyQueue.push(fileObj);
                 }
 
@@ -534,7 +534,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!item) return;
         
         if (seg_id) {
-            const seg = fileObj.segments.find(s => s.id === seg_id);
+            let seg = fileObj.segments.find(s => s.id === seg_id);
+            // 드래프트(즉시 인코딩)인 경우 처리 추가
+            if (!seg && fileObj.draft && fileObj.draft.id === seg_id) {
+                seg = fileObj.draft;
+            }
             if (seg) {
                 seg.status = 'encoding';
                 seg.progress = progress;
@@ -547,15 +551,37 @@ document.addEventListener('DOMContentLoaded', () => {
         const statusText = item.querySelector('.proxy-status-text'); 
         
         if (container) container.classList.remove('hidden');
-        if (bar) bar.style.width = `${progress}%`;
         
-        const metadata = item.querySelector('.file-metadata');
-        if (metadata) metadata.classList.add('hidden');
+        // 전체 진행률 계산 (모든 세그먼트의 평균)
+        const targets = fileObj.segments.length > 0 ? fileObj.segments : [fileObj.draft].filter(Boolean);
+        if (targets.length > 0) {
+            const totalProgress = targets.reduce((acc, s) => acc + (s.progress || 0), 0);
+            const overallProgress = Math.round(totalProgress / targets.length);
+            if (bar) bar.style.width = `${overallProgress}%`;
+            if (statusText) statusText.textContent = `인코딩 중... ${overallProgress}%`;
+        }
 
-        if (statusText) statusText.textContent = status;
+        // 전체 글로벌 진행률 계산 (전체 대기열 기준)
+        const activeTasksProgress = Array.from(conversionResolvers.keys()).reduce((acc, tid) => {
+            const [fid, sid] = tid.includes('@@') ? tid.split('@@') : [tid, null];
+            const f = uploadedFiles.find(u => u.id === fid);
+            if (f && sid) {
+                // 드래프트인 경우와 일반 세그먼트인 경우 구분
+                let p = 0;
+                if (sid.startsWith('draft_')) {
+                    p = f.draft ? f.draft.progress : 0;
+                } else {
+                    const s = f.segments.find(seg => seg.id === sid);
+                    p = s ? s.progress : 0;
+                }
+                return acc + p;
+            }
+            return acc;
+        }, 0);
         
-        const currentNum = Math.min(totalBatchCount, completedBatchCount + activeConversionCount);
-        updateStatus(`변환 중(${currentNum}/${totalBatchCount}): ${fileObj.name} (${progress}%)`);
+        const overallGlobalProgress = Math.min(100, Math.round((completedBatchCount * 100 + activeTasksProgress) / totalBatchCount));
+        const currentNum = Math.min(totalBatchCount, completedBatchCount + 1);
+        updateStatus(`변환 중(${currentNum}/${totalBatchCount}): ${fileObj.name} (${overallGlobalProgress}%)`);
     }
 
     // Python에서 프록시 변환 완료 시 호출 (복구)
@@ -592,25 +618,70 @@ document.addEventListener('DOMContentLoaded', () => {
         const item = document.querySelector(`[data-id="${file_id}"]`);
         
         if (fileObj && seg_id) {
-            const seg = fileObj.segments.find(s => s.id === seg_id);
+            let seg = fileObj.segments.find(s => s.id === seg_id);
+            // 드래프트인 경우 처리
+            if (!seg && fileObj.draft && fileObj.draft.id === seg_id) {
+                seg = fileObj.draft;
+            }
             if (seg) {
                 seg.status = result.status === 'success' ? 'completed' : 'error';
                 seg.progress = 100;
                 renderSegments(fileObj);
+
+                // 완료 표시 5초 후 자동 제거
+                if (seg.status === 'completed') {
+                    setTimeout(() => {
+                        seg.status = 'idle';
+                        renderSegments(fileObj);
+                    }, 5000);
+                }
             }
         }
 
         if (item) {
+            const bar = item.querySelector('.conversion-progress-bar');
+            const targets = fileObj.segments.length > 0 ? fileObj.segments : [fileObj.draft].filter(Boolean);
+            if (bar && targets.length > 0) {
+                const totalProgress = targets.reduce((acc, s) => acc + (s.progress || 0), 0);
+                const overallProgress = totalProgress / targets.length;
+                bar.style.width = `${overallProgress}%`;
+            }
+
             const statusText = item.querySelector('.proxy-status-text');
-            if (result.status === 'success') {
+            // 'waiting'이나 'encoding'인 구간이 하나도 없으면 모든 작업 완료로 간주
+            const allFinished = !targets.some(s => s.status === 'waiting' || s.status === 'encoding');
+
+            if (allFinished) {
                 if (statusText) statusText.textContent = "완료";
                 item.classList.add('border-green-400', 'bg-green-50');
+                
                 setTimeout(() => {
                     item.classList.remove('border-green-400', 'bg-green-50');
                     const metadata = item.querySelector('.file-metadata');
                     if (metadata) metadata.classList.remove('hidden');
+                    
+                    // 인코딩 바 숨기기
+                    const convContainer = item.querySelector('.conversion-progress-container');
+                    if (convContainer) convContainer.classList.add('hidden');
+                    
+                    if (statusText && statusText.textContent === "완료") {
+                        statusText.textContent = "";
+                    }
                 }, 3000);
+            } else {
+                // 아직 남은 구간이 있다면 계속 '인코딩 중...' 유지
+                if (statusText) statusText.textContent = "인코딩 중...";
             }
+        }
+
+        // 글로벌 상태 업데이트 (완료 시점)
+        const overallGlobalProgress = Math.min(100, Math.round((completedBatchCount * 100) / totalBatchCount));
+        if (completedBatchCount < totalBatchCount) {
+            updateStatus(`변환 중(${completedBatchCount}/${totalBatchCount}) (${overallGlobalProgress}%)`);
+        } else {
+            updateStatus(`GIF 변환 완료 (${totalBatchCount}/${totalBatchCount}) (100%)`);
+            eel.open_downloads_folder();
+            setTimeout(() => updateStatus(""), 3000);
         }
     }
 
@@ -629,6 +700,15 @@ document.addEventListener('DOMContentLoaded', () => {
         if (item) {
             const badge = item.querySelector('.proxy-badge');
             if (badge) badge.classList.remove('hidden');
+
+            const metadata = item.querySelector('.file-metadata');
+            if (metadata) metadata.classList.remove('hidden');
+            
+            const progressContainer = item.querySelector('.proxy-progress-container');
+            if (progressContainer) progressContainer.classList.add('hidden');
+            
+            const statusText = item.querySelector('.proxy-status-text');
+            if (statusText) statusText.textContent = "";
         }
         
         // 현재 선택된 파일이면 즉시 교체
@@ -881,7 +961,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // 3. Color Depth Dropdown
-        const colorValue = fileObj.numColors || 256;
+        const colorValue = seg.numColors || 256;
         const colorItems = document.querySelectorAll('#colors-dropdown .dropdown-item');
         colorItems.forEach(item => {
             if (parseInt(item.dataset.value) === colorValue) {
@@ -892,8 +972,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         // 4. Toggles
-        updateToggleUI(loopToggle, fileObj.loopPlayback !== undefined ? fileObj.loopPlayback : true);
-        updateToggleUI(ditherToggle, fileObj.useDither !== undefined ? fileObj.useDither : false);
+        updateToggleUI(loopToggle, seg.loopPlayback !== undefined ? seg.loopPlayback : true);
+        updateToggleUI(ditherToggle, seg.useDither !== undefined ? seg.useDither : false);
     }
 
     mainPlayer.addEventListener('click', togglePlayPause);
@@ -1100,6 +1180,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const shiftKey = e.shiftKey;
         const code = e.code; // e.key 대신 e.code를 사용하여 한글 상태에서도 정상 작동 (ㅑ -> KeyI)
 
+        const isLocked = selectedFileObj.activeSegmentId && !isEditingSavedSegment;
+
         // 단축키 매핑 및 시스템 비프음(뽁 소리) 방지
         switch (code) {
             case 'Space':
@@ -1109,6 +1191,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 
             case 'KeyI':
                 e.preventDefault();
+                if (isLocked) {
+                    updateStatus("수정 모드에서만 인/아웃 조정이 가능합니다.");
+                    setTimeout(() => updateStatus(""), 2000);
+                    return;
+                }
                 if (altKey) {
                     selectedSegmentObj.start = 0;
                 } else {
@@ -1122,6 +1209,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 
             case 'KeyO':
                 e.preventDefault();
+                if (isLocked) {
+                    updateStatus("수정 모드에서만 인/아웃 조정이 가능합니다.");
+                    setTimeout(() => updateStatus(""), 2000);
+                    return;
+                }
                 if (altKey) {
                     selectedSegmentObj.end = selectedFileObj.duration;
                 } else {
@@ -1136,6 +1228,11 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'KeyX':
                 if (altKey) {
                     e.preventDefault();
+                    if (isLocked) {
+                        updateStatus("수정 모드에서만 인/아웃 조정이 가능합니다.");
+                        setTimeout(() => updateStatus(""), 2000);
+                        return;
+                    }
                     selectedSegmentObj.start = 0;
                     selectedSegmentObj.end = selectedFileObj.duration;
                     updateTimelineUI();
@@ -1457,7 +1554,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const start = selectedSegmentObj.start;
             const end = selectedSegmentObj.end;
 
-            if (currentTime >= end || currentTime < start - 0.3) {
+            const frameDuration = 1 / (selectedFileObj.fps || 30);
+            if (currentTime >= end - (frameDuration * 0.9) || currentTime < start - 0.3) {
                 mainPlayer.currentTime = start;
             }
         }
@@ -1475,8 +1573,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const fps = selectedFileObj.fps || 30;
                 const frameDuration = 1 / fps;
 
-                // 아웃점 한 프레임 밀림 방지를 위해 미세하게(0.1 프레임) 앞당겨 체크
-                if (currentTime >= end - (frameDuration * 0.1)) {
+                // 아웃점 한 프레임 밀림 방지를 위해 한 프레임에 가깝게(0.9 프레임) 일찍 루프 처리
+                if (currentTime >= end - (frameDuration * 0.9)) {
                     mainPlayer.currentTime = start;
                 }
                 
@@ -1646,7 +1744,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 id: `draft_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
                 start: 0,
                 end: fileObj.duration || 0,
-                fps: fileObj.fps || 24,
+                fps: 24, // 기본값 무조건 24프레임 고정
                 resolution: "중간 (720p)",
                 numColors: 256,
                 useDither: false,
@@ -1678,11 +1776,24 @@ document.addEventListener('DOMContentLoaded', () => {
             const timeRange = `${formatTime(seg.start)} - ${formatTime(seg.end)}`;
             
             segDiv.innerHTML = `
-                <div class="flex items-center gap-2 overflow-hidden flex-1">
-                    <span class="opacity-40 flex-shrink-0">#${idx + 1}</span>
-                    <span class="segment-time truncate font-bold text-slate-700">${timeRange}</span>
+                <div class="flex flex-col flex-1 overflow-hidden pr-1">
+                    <div class="flex items-center gap-1">
+                        <span class="opacity-40 flex-shrink-0 text-[10px]">#${idx + 1}</span>
+                        <span class="segment-time font-bold text-slate-700 whitespace-nowrap">${timeRange}</span>
+                    </div>
+                    <!-- 개별 구간 진행바 -->
+                    ${(seg.status === 'encoding' || seg.status === 'waiting') ? `
+                        <div class="w-full h-0.5 bg-slate-100 rounded-full mt-1 overflow-hidden">
+                            <div class="h-full bg-indigo-400 transition-all duration-300" style="width: ${seg.progress || 0}%"></div>
+                        </div>
+                    ` : ''}
                 </div>
                 <div class="flex items-center gap-1 flex-shrink-0">
+                    <!-- 퍼센트/완료 표시 (오른쪽 정렬) -->
+                    <div class="text-right min-w-[28px] mr-0.5">
+                        ${seg.status === 'encoding' ? `<span class="text-indigo-500 font-black animate-pulse">${seg.progress}%</span>` : ''}
+                        ${seg.status === 'completed' ? `<span class="text-green-500 font-bold animate-in fade-in slide-in-from-right-1">완료</span>` : ''}
+                    </div>
                     <!-- Edit Button -->
                     <button class="edit-seg-btn p-1.5 rounded-md hover:bg-indigo-100 transition-all ${isThisEditing ? 'text-indigo-600 bg-indigo-50 shadow-sm' : 'text-slate-500'}" title="구간 수정">
                         <span class="material-symbols-outlined text-[18px]">${isThisEditing ? 'check_circle' : 'edit_square'}</span>
@@ -1861,7 +1972,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function processConversionQueue() {
         // 더 이상 처리할 작업이 없고 활성 작업도 없는 경우 종료 처리
         if (conversionQueue.length === 0 && activeConversionCount === 0) {
-            updateStatus(`전체 완료! (${totalBatchCount}/${totalBatchCount})`);
+            updateStatus(`GIF 변환 완료 (${totalBatchCount}/${totalBatchCount})`);
             setTimeout(() => {
                 if (activeConversionCount === 0 && conversionQueue.length === 0) {
                     updateStatus("");
@@ -1882,37 +1993,37 @@ document.addEventListener('DOMContentLoaded', () => {
             const task = conversionQueue.shift();
             activeConversionCount++;
             
-            const { fileObj, params } = task;
+            const { fileObj, segId, params } = task;
+            const taskId = `${fileObj.id}@@${segId}`;
             
             // 작업 시작 상태 표시
-            update_conversion_status(fileObj.id, "준비 중...", 2);
+            update_conversion_status(taskId, "준비 중...", 2);
             
-            try {
-                const res = await eel.request_conversion(
-                    fileObj.path, 
-                    fileObj.id, 
-                    params.outName, 
-                    params.start, 
-                    params.end, 
-                    params.fps, 
-                    params.resolution, 
-                    params.numColors, 
-                    params.useDither, 
-                    params.loopPlayback
-                )();
-
+            // 비블로킹 방식으로 호출하여 병렬성 확보
+            eel.request_conversion(
+                fileObj.path, 
+                taskId, 
+                params.outName, 
+                params.start, 
+                params.end, 
+                params.fps, 
+                params.resolution, 
+                params.numColors, 
+                params.useDither, 
+                params.loopPlayback
+            )().then(async (res) => {
                 if (res.status === 'processing') {
+                    // 실제 인코딩이 완료될 때까지 대기 (슬롯 점유)
                     await new Promise((resolve, reject) => {
-                        conversionResolvers.set(fileObj.id, { resolve, reject });
+                        conversionResolvers.set(taskId, { resolve, reject });
                     });
                 }
-            } catch (err) {
-                console.error("Conversion error for", fileObj.name, err);
-                conversion_completed(fileObj.id, {status: "error", message: err.message});
-            } finally {
+            }).catch(err => {
+                console.error("Conversion task failed:", err);
+            }).finally(() => {
                 activeConversionCount--;
-                processConversionQueue();
-            }
+                processConversionQueue(); // 작업 완료 시 다음 작업 트리거
+            });
         }
     }
 
@@ -1947,16 +2058,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // 이번 배치 작업 정보 초기화 (총 세그먼트 수 기준)
         totalBatchCount = 0;
-        selectedFiles.forEach(f => totalBatchCount += f.segments.length);
+        selectedFiles.forEach(f => {
+            const count = f.segments.length > 0 ? f.segments.length : 1;
+            totalBatchCount += count;
+        });
         completedBatchCount = 0;
 
         for (let i = 0; i < selectedFiles.length; i++) {
             const fileObj = selectedFiles[i];
+            // 대기열이 비어있으면 현재 작업 중인 구간(드래프트 등)을 대상에 포함
+            const targets = fileObj.segments.length > 0 ? fileObj.segments : [getActiveSegment(fileObj)];
             
-            for (let j = 0; j < fileObj.segments.length; j++) {
-                const seg = fileObj.segments[j];
+            for (let j = 0; j < targets.length; j++) {
+                const seg = targets[j];
                 let outName = "output_" + fileObj.name.replace(/\.[^/.]+$/, "");
-                if (fileObj.segments.length > 1) {
+                if (targets.length > 1) {
                     outName += `_Clip${j + 1}`;
                 }
                 outName += ".gif";
@@ -1969,20 +2085,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (useOverride) {
                     fps = uiFps; resolution = uiResolution; numColors = uiNumColors; useDither = uiUseDither; loopPlayback = uiLoopPlayback;
                 } else {
-                    fps = seg.fps || 24;
-                    resolution = seg.resolution || "중간 (720p)";
-                    if (resolution === "직접 설정") {
-                        resolution = `${seg.customWidth || fileObj.width}:${seg.customHeight || fileObj.height}`;
+                    // 대기열이 비어있던 경우(드래프트 상태)라면 현재 우측 설정창의 값을 사용
+                    if (fileObj.segments.length === 0) {
+                        fps = uiFps; resolution = uiResolution; numColors = uiNumColors; useDither = uiUseDither; loopPlayback = uiLoopPlayback;
+                    } else {
+                        fps = seg.fps || 24;
+                        resolution = seg.resolution || "중간 (720p)";
+                        if (resolution === "직접 설정") {
+                            resolution = `${seg.customWidth || fileObj.width}:${seg.customHeight || fileObj.height}`;
+                        }
+                        numColors = seg.numColors || 256;
+                        useDither = seg.useDither || false;
+                        loopPlayback = seg.loopPlayback !== undefined ? seg.loopPlayback : true;
                     }
-                    numColors = seg.numColors || 256;
-                    useDither = seg.useDither || false;
-                    loopPlayback = seg.loopPlayback !== undefined ? seg.loopPlayback : true;
                 }
 
                 // 세그먼트 상태 초기화
                 seg.status = 'waiting';
                 seg.progress = 0;
-                renderSegments(fileObj);
+                // 대기열에 있는 경우에만 리스트 렌더링 (드래프트는 리스트에 없음)
+                if (fileObj.segments.length > 0) renderSegments(fileObj);
 
                 // 부모 아이템 UI도 업데이트 (첫 번째 작업 시작 시)
                 const item = document.querySelector(`[data-id="${fileObj.id}"]`);

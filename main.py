@@ -246,6 +246,20 @@ def generate_proxy_worker(path, file_id, proxy_path, total_duration, ffmpeg_exe)
         eel.proxy_completed(file_id, {"status": "error", "message": str(e)})
 
 @eel.expose
+def open_downloads_folder():
+    """기본 다운로드 폴더를 엽니다."""
+    import platform
+    downloads_path = os.path.join(os.path.expanduser("~"), "Downloads")
+    try:
+        if platform.system() == 'Darwin':
+            subprocess.run(['open', downloads_path])
+        elif platform.system() == 'Windows':
+            os.startfile(downloads_path)
+        return {"status": "success"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@eel.expose
 def open_file_location(path):
     """파일이 있는 폴더를 열고 해당 파일을 선택 상태로 표시합니다."""
     import platform
@@ -327,6 +341,7 @@ def conversion_worker(file_id, input_path, output_path, start_time, end_time, fp
         
         # --- Pass 1: Palette Generation ---
         eel.update_conversion_status(file_id, "팔레트 생성 중...", 5)
+        eel.sleep(0.01) # 프론트엔드로 상태 메시지를 즉시 전송하도록 이벤트 루프에 제어권 양보
         filters_pass1 = f"{scale_filter}fps={int(fps)},palettegen=max_colors={num_colors}:stats_mode=diff"
         cmd1 = [
             ffmpeg_exe, "-y", "-ss", str(start_time), "-t", str(duration),
@@ -338,25 +353,34 @@ def conversion_worker(file_id, input_path, output_path, start_time, end_time, fp
         
         # --- Pass 2: GIF Encoding ---
         eel.update_conversion_status(file_id, "인코딩 중...", 15)
+        eel.sleep(0.01)
         loop_val = "0" if loop_playback else "-1"
         filters_pass2 = f"{scale_filter}fps={int(fps)}[x];[x][1:v]paletteuse=dither={dither_method}"
         cmd2 = [
             ffmpeg_exe, "-y", "-ss", str(start_time), "-t", str(duration),
             "-i", input_path, "-i", palette_path,
-            "-filter_complex", filters_pass2, "-loop", loop_val, output_path
+            "-filter_complex", filters_pass2, "-loop", loop_val, 
+            "-progress", "pipe:1", output_path
         ]
         
-        process = subprocess.Popen(cmd2, stderr=subprocess.PIPE, text=True, errors='ignore', universal_newlines=True)
+        process = subprocess.Popen(cmd2, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='ignore', universal_newlines=True)
         
-        for line in process.stderr:
-            if "time=" in line and duration > 0:
-                time_match = re.search(r"time=(\d+):(\d+):(\d+\.\d+)", line)
-                if time_match:
-                    h, m, s = time_match.groups()
-                    current_time = int(h) * 3600 + int(m) * 60 + float(s)
-                    raw_progress = min(100, (current_time / duration) * 100)
-                    mapped_progress = min(100, int(15 + (raw_progress * 0.85)))
-                    eel.update_conversion_status(file_id, f"인코딩 중... {int(raw_progress)}%", mapped_progress)
+        while True:
+            line = process.stdout.readline()
+            if not line:
+                break
+                
+            if "out_time_us=" in line:
+                try:
+                    time_us = int(line.split('=')[1])
+                    current_time = time_us / 1000000.0
+                    if duration > 0:
+                        raw_progress = min(100, (current_time / duration) * 100)
+                        mapped_progress = min(100, int(15 + (raw_progress * 0.85)))
+                        eel.update_conversion_status(file_id, f"인코딩 중... {int(raw_progress)}%", mapped_progress)
+                        eel.sleep(0.01) # 진행률이 프론트엔드에 실시간으로 반영되도록 양보
+                except:
+                    pass
         
         process.wait()
         
@@ -364,14 +388,8 @@ def conversion_worker(file_id, input_path, output_path, start_time, end_time, fp
             os.remove(palette_path)
             
         if process.returncode == 0:
-            # 다운로드 폴더 열기 (최초 1회 혹은 설정에 따라)
-            try:
-                import platform
-                if platform.system() == 'Darwin':
-                    subprocess.run(['open', downloads_path])
-                elif platform.system() == 'Windows':
-                    os.startfile(downloads_path)
-            except: pass
+            pass
+
 
             eel.conversion_completed(file_id, {
                 "status": "success", 
