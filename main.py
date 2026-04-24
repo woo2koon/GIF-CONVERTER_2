@@ -9,8 +9,18 @@ import subprocess
 import imageio_ffmpeg
 import re
 
+# 프록시 저장용 폴더 설정 및 생성 (모듈 상단으로 이동)
+PROXY_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".proxies")
+if not os.path.exists(PROXY_DIR):
+    os.makedirs(PROXY_DIR, exist_ok=True)
+
 # Initialize Eel, pointing to the 'web' directory
 eel.init('web')
+
+@eel.expose
+def get_os_info():
+    import platform
+    return platform.system()
 
 @eel.btl.route('/local_file/<filepath:path>')
 def server_local_file(filepath):
@@ -143,6 +153,21 @@ def get_file_info(path):
         except Exception as ffmpeg_err:
             print(f"메타데이터 추출 실패: {ffmpeg_err}")
 
+        # 기존 프록시 파일 존재 여부 확인 (hash 기반 fingerprint 사용)
+        proxy_path = None
+        try:
+            import hashlib
+            norm_path = os.path.normpath(path)
+            file_stat = os.stat(path)
+            fingerprint = f"{norm_path}_{file_stat.st_size}_{file_stat.st_mtime}"
+            path_hash = hashlib.md5(fingerprint.encode()).hexdigest()
+            potential_proxy = os.path.join(PROXY_DIR, f"proxy_{path_hash}.mp4")
+            if os.path.exists(potential_proxy):
+                proxy_path = potential_proxy
+                print(f"기존 프록시 발견: {proxy_path}")
+        except Exception as e:
+            print(f"프록시 확인 중 오류: {e}")
+
         return {
             "status": "success",
             "name": name,
@@ -151,15 +176,12 @@ def get_file_info(path):
             "duration": duration,
             "width": width,
             "height": height,
-            "fps": fps
+            "fps": fps,
+            "proxy_path": proxy_path
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-# 프록시 저장용 폴더 설정 및 생성
-PROXY_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".proxies")
-if not os.path.exists(PROXY_DIR):
-    os.makedirs(PROXY_DIR, exist_ok=True)
 
 @eel.expose
 def request_proxy(path, file_id):
@@ -169,8 +191,9 @@ def request_proxy(path, file_id):
     
     # 지능형 해시 생성 (경로 + 크기 + 수정시간)
     try:
+        norm_path = os.path.normpath(path)
         file_stat = os.stat(path)
-        fingerprint = f"{path}_{file_stat.st_size}_{file_stat.st_mtime}"
+        fingerprint = f"{norm_path}_{file_stat.st_size}_{file_stat.st_mtime}"
         path_hash = hashlib.md5(fingerprint.encode()).hexdigest()
         proxy_path = os.path.join(PROXY_DIR, f"proxy_{path_hash}.mp4")
         

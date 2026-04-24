@@ -9,7 +9,7 @@
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
     <link rel="stylesheet" as="style" crossorigin
         href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
-    <link href='//spoqa.github.io/spoqa-han-sans/css/SpoqaHanSansNeo.css' rel='stylesheet' type='text/css'>
+    <link href='https://spoqa.github.io/spoqa-han-sans/css/SpoqaHanSansNeo.css' rel='stylesheet' type='text/css'>
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
         rel="stylesheet" />
     <script type="text/javascript" src="/eel.js"></script>
@@ -19,8 +19,10 @@
             theme: {
                 extend: {
                     fontFamily: {
-                        sans: ['Spoqa Han Sans Neo', 'Pretendard', 'sans-serif'],
-                        manrope: ['Manrope', 'Spoqa Han Sans Neo', 'sans-serif'],
+                        sans: ['Pretendard', 'Spoqa Han Sans Neo', 'sans-serif'],
+                        body: ['Pretendard', 'Spoqa Han Sans Neo', 'sans-serif'],
+                        label: ['Pretendard', 'Spoqa Han Sans Neo', 'sans-serif'],
+                        headline: ['Pretendard', 'Spoqa Han Sans Neo', 'sans-serif'],
                     },
                     "colors": {
                         "surface-container-low": "#eef1f3",
@@ -81,22 +83,13 @@
                         "xl": "0.75rem",
                         "full": "9999px"
                     },
-                    "fontFamily": {
-                        "headline": ["Manrope"],
-                        "body": ["Inter"],
-                        "label": ["Inter"]
-                    }
                 },
             },
         }
     </script>
     <style>
         body {
-            font-family: 'Inter', sans-serif;
-        }
-
-        .font-manrope {
-            font-family: 'Manrope', sans-serif;
+            font-family: 'Pretendard', 'Spoqa Han Sans Neo', sans-serif !important;
         }
 
         .glass-panel {
@@ -115,6 +108,22 @@
         .custom-scrollbar::-webkit-scrollbar-thumb {
             background: #d9dde0;
             border-radius: 10px;
+        }
+
+        /* Material Symbols Ligature Flash Fix */
+        .material-symbols-outlined {
+            display: inline-block;
+            white-space: nowrap;
+            width: 1em;
+            overflow: hidden;
+            vertical-align: middle;
+            line-height: 1;
+            opacity: 0; /* 로딩 전까지 아예 숨김 */
+            transition: opacity 0.2s ease;
+        }
+
+        .fonts-loaded .material-symbols-outlined {
+            opacity: 1; /* 폰트 로드 후 노출 */
         }
 
         /* Custom Dropdown Styles */
@@ -182,24 +191,39 @@
     <div class="flex-1 flex overflow-hidden">
         <!-- SideNavBar / Left Column: File Library -->
         <aside
-            class="w-80 bg-slate-100 flex flex-col gap-4 p-4 border-r border-slate-200/10 font-manrope font-medium text-sm relative overflow-hidden">
-            <div class="flex items-center justify-between mb-2 px-1">
-                <div class="flex items-center gap-4 ml-1">
-                    <h2 class="text-on-surface-variant font-extrabold uppercase tracking-widest text-base">파일</h2>
-                    <div class="flex items-center gap-2 ml-1">
+            class="w-80 bg-slate-100 flex flex-col gap-4 p-4 border-r border-slate-200/10 font-sans font-medium text-sm relative overflow-hidden">
+            <div class="px-1 mb-2">
+                <div class="flex items-center justify-between h-8 mb-2">
+                    <div class="flex items-center gap-2">
+                        <h2 class="text-on-surface-variant font-bold uppercase tracking-wider text-sm opacity-80 font-sans">파일 보관함</h2>
+                        <!-- Compact Add Button (Visible when library not empty) -->
+                        <button id="add-video-btn-compact" class="hidden flex items-center justify-center w-6 h-6 bg-indigo-100 text-indigo-600 rounded-full hover:bg-indigo-600 hover:text-white transition-all active:scale-90" title="파일 추가">
+                            <span class="material-symbols-outlined text-base">add</span>
+                        </button>
+                    </div>
+                    <div class="flex items-center gap-2">
                         <input
                             class="w-3.5 h-3.5 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer"
                             id="select-all-lib" type="checkbox" />
-                        <label class="text-xs font-bold text-on-surface-variant uppercase cursor-pointer tracking-tight"
+                        <label class="text-xs font-bold text-on-surface-variant uppercase cursor-pointer tracking-tight opacity-70"
                             for="select-all-lib">전체 선택</label>
                     </div>
                 </div>
-                <input type="file" id="video-upload" accept="video/mp4,video/*" class="hidden" multiple />
-                <button id="add-video-btn" class="p-1.5 hover:bg-slate-200 rounded-lg transition-all active:scale-95" title="파일 추가">
-                    <span class="material-symbols-outlined text-xl font-bold" data-icon="add">add</span>
-                </button>
             </div>
-            <div id="library-list" class="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-3 pb-24">
+
+            <input type="file" id="video-upload" accept="video/mp4,video/*" class="hidden" multiple />
+
+            <div id="library-list" class="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-3 pb-24 px-1">
+                <!-- Welcome/Empty State / Large Add Button -->
+                <button id="add-video-btn" class="flex-1 w-full bg-white hover:bg-indigo-50 text-indigo-600 border-2 border-dashed border-indigo-200 hover:border-indigo-400 rounded-2xl flex flex-col items-center justify-center gap-4 transition-all group active:scale-[0.98] min-h-[300px]">
+                    <div class="w-16 h-16 bg-indigo-50 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <span class="material-symbols-outlined text-4xl">video_library</span>
+                    </div>
+                    <div class="text-center px-6">
+                        <p class="font-bold text-slate-700">비디오 파일 추가</p>
+                        <p id="add-video-subtext" class="text-xs text-slate-500 mt-2">이곳을 클릭하여 변환할<br>비디오를 추가하세요</p>
+                    </div>
+                </button>
                 <!-- Files will be dynamically injected here -->
             </div>
 
@@ -219,7 +243,7 @@
             <div class="flex items-center justify-between mb-4">
                 <div>
                     <h1 id="header-filename"
-                        class="font-manrope text-2xl font-extrabold tracking-tight text-on-surface truncate max-w-[400px]">
+                        class="font-sans text-2xl font-extrabold tracking-tight text-on-surface truncate max-w-[400px]">
                         파일을 선택해주세요</h1>
                     <p id="header-resolution" class="text-on-surface-variant text-sm">영상 정보가 여기에 표시됩니다</p>
                 </div>
@@ -232,7 +256,7 @@
                         webkit-playsinline disablePictureInPicture></video>
                     <div id="placeholder-msg" class="text-on-surface-variant font-medium text-white">비디오를 선택하거나 업로드하세요
                     </div>
-                    <div id="proxy-badge" class="absolute top-4 left-4 bg-[#2d2d2d]/80 text-white text-[10px] font-black px-2.5 py-1 rounded-md tracking-[0.15em] hidden select-none shadow-lg shadow-black/20">
+                    <div id="proxy-badge" class="absolute top-4 left-4 bg-[#2d2d2d]/80 text-white text-[10px] font-bold px-2.5 py-1 rounded-md tracking-[0.15em] hidden select-none shadow-lg shadow-black/20">
                         PROXY PREVIEW
                     </div>
 
@@ -244,7 +268,7 @@
                         </div>
                         <div class="flex flex-col items-center gap-1">
                             <span class="text-white font-bold text-lg tracking-tight">WEBM 파일 프록시 변환 중...</span>
-                            <span id="proxy-overlay-progress" class="text-indigo-400 font-black text-2xl">0%</span>
+                            <span id="proxy-overlay-progress" class="text-indigo-400 font-bold text-2xl">0%</span>
                         </div>
                         <p class="text-white/40 text-xs mt-2">고해상도 미리보기를 준비하고 있습니다.</p>
                     </div>
@@ -287,7 +311,7 @@
                 <div id="timeline-area" class="w-full mt-3 bg-surface-container-low p-6 rounded-xl">
                     <div class="flex justify-between items-center mb-4">
                         <div class="flex items-center gap-4">
-                            <span class="text-sm font-bold text-on-surface-variant font-manrope">타임라인 구간 자르기</span>
+                            <span class="text-sm font-bold text-on-surface-variant font-sans">타임라인 구간 자르기</span>
                             <button id="trim-reset-btn"
                                 class="text-xs bg-slate-200 hover:bg-slate-300 px-2 py-1 rounded font-bold transition-colors">초기화</button>
                         </div>
@@ -334,11 +358,11 @@
         <aside class="w-80 bg-surface-container-low flex flex-col h-full border-l border-white/5">
             <!-- Scrollable Settings Area -->
             <div class="flex-1 overflow-y-auto p-6 flex flex-col gap-6 custom-scrollbar">
-                <h2 class="font-manrope text-lg font-bold text-on-surface mb-2">출력 설정</h2>
+                <h2 class="font-sans text-lg font-bold text-on-surface mb-2">출력 설정</h2>
 
                 <!-- Resolution -->
                 <div class="space-y-3">
-                    <label class="block text-xs font-bold text-on-surface-variant uppercase tracking-widest font-manrope">해상도</label>
+                    <label class="block text-xs font-bold text-on-surface-variant uppercase tracking-widest font-sans">해상도</label>
                     <div class="relative custom-dropdown" id="res-dropdown">
                         <button class="dropdown-trigger w-full bg-surface-container-lowest border-none rounded-xl py-3 px-4 text-base font-medium flex items-center justify-between shadow-sm hover:bg-slate-50 transition-colors">
                             <span id="res-selected">중간 (720p)</span>
@@ -370,7 +394,7 @@
 
                 <!-- Color Depth -->
                 <div class="space-y-3">
-                    <label class="block text-xs font-bold text-on-surface-variant uppercase tracking-widest font-manrope">색상 수</label>
+                    <label class="block text-xs font-bold text-on-surface-variant uppercase tracking-widest font-sans">색상 수</label>
                     <div class="relative custom-dropdown" id="colors-dropdown">
                         <button class="dropdown-trigger w-full bg-surface-container-lowest border-none rounded-xl py-3 px-4 text-base font-medium flex items-center justify-between shadow-sm hover:bg-slate-50 transition-colors">
                             <span id="colors-selected">256색 (고화질)</span>
@@ -388,8 +412,8 @@
                 <!-- Frame Rate -->
                 <div class="space-y-4">
                     <div class="flex justify-between items-center">
-                        <label class="text-xs font-bold text-on-surface-variant uppercase tracking-widest font-manrope">프레임 레이트</label>
-                        <span id="fps-display" class="text-sm font-bold text-primary font-manrope">24 FPS</span>
+                        <label class="text-xs font-bold text-on-surface-variant uppercase tracking-widest font-sans">프레임 레이트</label>
+                        <span id="fps-display" class="text-sm font-bold text-primary font-sans">24 FPS</span>
                     </div>
                     <div class="flex flex-col">
                         <input id="fps-slider"
@@ -470,12 +494,12 @@
     <div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none">
         <div id="status-bar" class="bg-white/80 backdrop-blur-md border border-white/20 shadow-xl px-6 py-2 rounded-full transition-all duration-300 opacity-0 scale-95 flex items-center gap-3">
             <div class="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
-            <p id="status-msg" class="text-xs font-manrope font-bold text-on-surface tracking-wide">대기 중...</p>
+            <p id="status-msg" class="text-xs font-sans font-bold text-on-surface tracking-wide">대기 중...</p>
         </div>
     </div>
     
     <!-- Custom Context Menu -->
-    <div id="custom-context-menu" class="hidden fixed bg-white/90 backdrop-blur-xl border border-slate-200 shadow-2xl rounded-xl py-2 w-56 z-[9999] font-manrope">
+    <div id="custom-context-menu" class="hidden fixed bg-white/90 backdrop-blur-xl border border-slate-200 shadow-2xl rounded-xl py-2 w-56 z-[9999] font-sans">
         <button id="ctx-generate-proxy" class="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors">
             <span class="material-symbols-outlined text-[20px]">speed</span>
             미리보기 프록시 생성

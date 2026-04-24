@@ -1,6 +1,16 @@
 document.addEventListener('DOMContentLoaded', () => {
+    // 폰트 로딩 감지 및 아이콘 노출 제어
+    if (document.fonts) {
+        document.fonts.ready.then(() => {
+            document.body.classList.add('fonts-loaded');
+        });
+    } else {
+        setTimeout(() => document.body.classList.add('fonts-loaded'), 1000);
+    }
+
     const uploadInput = document.getElementById('video-upload');
     const addBtn = document.getElementById('add-video-btn');
+    const addBtnCompact = document.getElementById('add-video-btn-compact');
     const libraryList = document.getElementById('library-list');
     const mainPlayer = document.getElementById('main-player');
     const placeholderMsg = document.getElementById('placeholder-msg');
@@ -79,6 +89,74 @@ document.addEventListener('DOMContentLoaded', () => {
     // 프록시 및 변환 완료 대기를 위한 Promise 관리
     const proxyResolvers = new Map();
     const conversionResolvers = new Map();
+
+    // --- OS Detection & DnD Blocking ---
+    let currentOS = 'Unknown';
+    const dropOverlay = document.getElementById('drop-overlay');
+
+    async function initOS() {
+        try {
+            currentOS = await eel.get_os_info()();
+            console.log("Current OS detected:", currentOS);
+            
+            // Windows인 경우 드래그 앤 드롭 오버레이 비활성화
+            if (currentOS === 'Windows') {
+                if (dropOverlay) dropOverlay.remove(); // 아예 제거하여 혼동 방지
+            } else {
+                // Mac 등 타 OS에서는 드래그 앤 드롭 이벤트 활성화 및 텍스트 안내 추가
+                initDragAndDrop();
+                const subtext = document.getElementById('add-video-subtext');
+                if (subtext) {
+                    subtext.innerHTML = "이곳을 클릭하거나 파일을 끌어다 놓아<br>비디오를 추가하세요";
+                }
+            }
+        } catch (e) {
+            console.error("OS detection failed", e);
+            initDragAndDrop(); // 폴백
+        }
+    }
+
+    function updateLibraryEmptyState() {
+        if (uploadedFiles.length === 0) {
+            if (addBtn) addBtn.classList.remove('hidden');
+            if (addBtnCompact) addBtnCompact.classList.add('hidden');
+        } else {
+            if (addBtn) addBtn.classList.add('hidden');
+            if (addBtnCompact) addBtnCompact.classList.remove('hidden');
+        }
+    }
+
+    function initDragAndDrop() {
+        if (!dropOverlay) return;
+
+        window.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropOverlay.classList.add('active');
+        });
+
+        window.addEventListener('dragleave', (e) => {
+            if (e.relatedTarget === null) {
+                dropOverlay.classList.remove('active');
+            }
+        });
+
+        window.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            dropOverlay.classList.remove('active');
+            
+            const files = e.dataTransfer.files;
+            if (files && files.length > 0) {
+                const paths = [];
+                for (let i = 0; i < files.length; i++) {
+                    const path = files[i].pywebviewFullPath || files[i].path;
+                    if (path) paths.push(path);
+                }
+                if (paths.length > 0) processFilePaths(paths);
+            }
+        });
+    }
+
+    initOS();
 
     // --- Custom Dropdown Logic ---
     function initCustomDropdowns() {
@@ -273,41 +351,6 @@ document.addEventListener('DOMContentLoaded', () => {
         runConversion(true);
     });
 
-    // 드래그 앤 드롭 지원 로직 통합
-    const dropOverlay = document.getElementById('drop-overlay');
-    
-    window.addEventListener('dragenter', (e) => {
-        e.preventDefault();
-        if (dropOverlay) dropOverlay.classList.add('active');
-    });
-
-    window.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        if (dropOverlay && !dropOverlay.classList.contains('active')) {
-            dropOverlay.classList.add('active');
-        }
-    });
-
-    window.addEventListener('dragleave', (e) => {
-        if (dropOverlay && (e.relatedTarget === null || e.clientX <= 0 || e.clientY <= 0)) {
-            dropOverlay.classList.remove('active');
-        }
-    });
-
-    window.addEventListener('drop', async (e) => {
-        e.preventDefault();
-        if (dropOverlay) dropOverlay.classList.remove('active');
-
-        const files = e.dataTransfer.files;
-        if (files && files.length > 0) {
-            const paths = [];
-            for (let i = 0; i < files.length; i++) {
-                const path = files[i].pywebviewFullPath || files[i].path;
-                if (path) paths.push(path);
-            }
-            if (paths.length > 0) processFilePaths(paths);
-        }
-    });
 
     async function processFilePaths(filePaths) {
         if (!filePaths || filePaths.length === 0 || isProcessingFiles) return;
@@ -324,6 +367,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 const res = await eel.get_file_info(path)();
                 if (res.status === "error") continue;
 
+                let initialUrl = `/local_file/${res.path.split('/').map(encodeURIComponent).join('/')}`;
+                let proxyPath = res.proxy_path || null;
+                
+                if (proxyPath) {
+                    const safeProxyPath = proxyPath.replace(/\\/g, '/');
+                    initialUrl = `/local_file/${safeProxyPath.split('/').map(encodeURIComponent).join('/')}`;
+                }
+
                 const fileObj = {
                     id: `file_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
                     name: res.name,
@@ -333,8 +384,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     width: res.width || 1280,
                     height: res.height || 720,
                     fps: res.fps || 24,
-                    objectUrl: `/local_file/${res.path.split('/').map(encodeURIComponent).join('/')}`,
-                    proxyPath: null,
+                    objectUrl: initialUrl,
+                    proxyPath: proxyPath,
                     trimStart: 0,
                     trimEnd: res.duration || 0,
                     loopPlayback: true,
@@ -364,6 +415,7 @@ document.addEventListener('DOMContentLoaded', () => {
         isProcessingFiles = false;
 
         if (processedCount > 0) {
+            updateLibraryEmptyState();
             updateStatus(`${processedCount}개의 파일을 불러왔습니다.`);
             setTimeout(() => updateStatus(""), 3000);
             if (!selectedFileObj && uploadedFiles.length > 0) {
@@ -372,13 +424,40 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // 파일 추가 버튼 (네이티브 선택창 사용)
-    addBtn.addEventListener('click', async () => {
-        const paths = await eel.pick_videos()();
-        if (paths && paths.length > 0) {
-            processFilePaths(paths);
+    // 파일 선택 통합 처리 함수
+    async function handlePickVideos() {
+        console.log("Picking videos...");
+        try {
+            const paths = await eel.pick_videos()();
+            console.log("Picked paths:", paths);
+            if (paths && paths.length > 0) {
+                processFilePaths(paths);
+            }
+        } catch (err) {
+            console.error("Error picking videos via Eel:", err);
+            // Fallback: Native file input
+            if (uploadInput) uploadInput.click();
         }
-    });
+    }
+
+    // 파일 추가 버튼 (네이티브 선택창 사용)
+    if (addBtn) {
+        addBtn.addEventListener('click', handlePickVideos);
+    }
+    if (addBtnCompact) {
+        addBtnCompact.addEventListener('click', handlePickVideos);
+    }
+
+    // 숨겨진 input[type=file] 변경 이벤트 처리 (Fallback용)
+    if (uploadInput) {
+        uploadInput.addEventListener('change', (e) => {
+            const files = e.target.files;
+            if (files && files.length > 0) {
+                const paths = Array.from(files).map(f => f.path || f.name); // Browser security limits full path
+                processFilePaths(paths);
+            }
+        });
+    }
 
     // Python에서 진행률 업데이트 시 호출
     eel.expose(update_proxy_progress);
@@ -389,10 +468,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const bar = item.querySelector('.proxy-progress-bar');
         const container = item.querySelector('.proxy-progress-container');
         const statusText = item.querySelector('.proxy-status-text');
+        const metadata = item.querySelector('.file-metadata');
         
         if (container) container.classList.remove('hidden');
         if (bar) bar.style.width = `${progress}%`;
         
+        // 프록시 생성 중에는 용량/포맷 정보를 숨겨 레이아웃 붕괴 방지
+        if (progress < 100) {
+            if (metadata) metadata.classList.add('hidden');
+        }
+
         // 만약 현재 플레이어에 떠있는 파일이라면 중앙 오버레이도 업데이트
         const overlay = document.getElementById('proxy-overlay');
         const overlayProgress = document.getElementById('proxy-overlay-progress');
@@ -404,6 +489,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (statusText) {
             if (progress >= 100) {
                 statusText.textContent = "변환 완료";
+                if (metadata) metadata.classList.remove('hidden'); // 다시 노출
                 // 프록시 배지 노출
                 const badge = item.querySelector('.proxy-badge');
                 if (badge) badge.classList.remove('hidden');
@@ -437,6 +523,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (container) container.classList.remove('hidden');
         if (bar) bar.style.width = `${progress}%`;
         
+        // 변환 중에는 용량/포맷 정보를 숨겨 레이아웃 붕괴 방지
+        const metadata = item.querySelector('.file-metadata');
+        if (metadata) metadata.classList.add('hidden');
+
         if (statusText) statusText.textContent = status;
         
         // 메인 하단 상태 바 업데이트
@@ -493,6 +583,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 setTimeout(() => {
                     item.classList.remove('border-green-400', 'bg-green-50');
                     if (statusText && item.dataset.status === 'completed') statusText.textContent = "";
+                    const metadata = item.querySelector('.file-metadata');
+                    if (metadata) metadata.classList.remove('hidden');
                     delete item.dataset.status;
                 }, 3000);
             } else {
@@ -511,7 +603,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         let safeProxyPath = proxyPath.replace(/\\/g, '/');
         if (safeProxyPath.startsWith('/')) safeProxyPath = safeProxyPath.substring(1);
-        const newUrl = `http://127.0.0.1:8889/local_file/${safeProxyPath}`;
+        const newUrl = `/local_file/${safeProxyPath.split('/').map(encodeURIComponent).join('/')}`;
         
         fileObj.proxyPath = proxyPath;
         fileObj.objectUrl = newUrl;
@@ -545,6 +637,15 @@ document.addEventListener('DOMContentLoaded', () => {
         if (fileObj.isProxying) return;
         fileObj.isProxying = true;
         
+        // 시작 즉시 메타데이터 숨김 처리하여 깜빡임 방지
+        const item = document.querySelector(`[data-id="${fileObj.id}"]`);
+        if (item) {
+            const metadata = item.querySelector('.file-metadata');
+            if (metadata) metadata.classList.add('hidden');
+            const container = item.querySelector('.proxy-progress-container');
+            if (container) container.classList.remove('hidden');
+        }
+
         const res = await eel.request_proxy(fileObj.path, fileObj.id)();
         
         if (res.status === 'success') {
@@ -1159,24 +1260,18 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     mainPlayer.addEventListener('timeupdate', () => {
-        // 드래그 중이거나 스크러빙 중일 때는 루프 로직을 실행하지 않음
+        // 드래그 중이거나 스크러빙 중일 때는 로직을 실행하지 않음
         if (!selectedFileObj || isDraggingLeft || isDraggingRight || isScrubbing) return;
         
-        // 사용자가 일시정지 상태에서 타임라인을 탐색할 때는 루프 로직(강제 튕김)을 차단
-        if (mainPlayer.paused) return;
+        // rVFC가 지원되지 않는 브라우저를 위한 최소한의 폴백
+        if (!('requestVideoFrameCallback' in mainPlayer) && !mainPlayer.paused) {
+            const currentTime = mainPlayer.currentTime;
+            const start = selectedFileObj.trimStart;
+            const end = selectedFileObj.trimEnd;
 
-        const currentTime = mainPlayer.currentTime;
-        const start = selectedFileObj.trimStart;
-        const end = selectedFileObj.trimEnd;
-
-        // 사파리 특성을 고려한 루프 로직 (재생 중에만 작동)
-        if (currentTime < start - 0.3) {
-            mainPlayer.currentTime = start;
-        }
-
-        if (currentTime >= end) {
-            mainPlayer.currentTime = start;
-            mainPlayer.play().catch(() => { });
+            if (currentTime >= end || currentTime < start - 0.3) {
+                mainPlayer.currentTime = start;
+            }
         }
     });
 
@@ -1184,6 +1279,24 @@ document.addEventListener('DOMContentLoaded', () => {
         if (selectedFileObj && !isScrubbing && !isDraggingLeft && !isDraggingRight) {
             const currentTime = metadata && metadata.mediaTime ? metadata.mediaTime : mainPlayer.currentTime;
             updatePlayheadUI(currentTime);
+
+            // 루프 로직 (rVFC 내부에서 더 정밀하게 처리)
+            if (!mainPlayer.paused) {
+                const start = selectedFileObj.trimStart;
+                const end = selectedFileObj.trimEnd;
+                const fps = selectedFileObj.fps || 30;
+                const frameDuration = 1 / fps;
+
+                // 아웃점 한 프레임 밀림 방지를 위해 미세하게(0.1 프레임) 앞당겨 체크
+                if (currentTime >= end - (frameDuration * 0.1)) {
+                    mainPlayer.currentTime = start;
+                }
+                
+                // 인점보다 한참 뒤처진 경우 보정
+                if (currentTime < start - 0.3) {
+                    mainPlayer.currentTime = start;
+                }
+            }
         }
         
         if ('requestVideoFrameCallback' in mainPlayer && !mainPlayer.paused) {
@@ -1315,6 +1428,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 placeholderMsg.classList.remove('hidden');
                 document.getElementById('header-filename').textContent = "파일을 선택해주세요";
                 document.getElementById('header-resolution').textContent = "영상 정보가 여기에 표시됩니다";
+                document.getElementById('proxy-badge').classList.add('hidden');
                 document.getElementById('timeline-area').classList.add('hidden');
             }
         }
@@ -1324,6 +1438,7 @@ document.addEventListener('DOMContentLoaded', () => {
             cb.dataset.index = i;
         });
         updateBatchButtonState();
+        updateLibraryEmptyState();
         updateStatus(`${idsToRemove.length}개의 파일을 목록에서 제거했습니다.`);
         setTimeout(() => updateStatus(""), 3000);
     });
@@ -1349,13 +1464,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     <div class="flex-1 flex flex-col justify-center overflow-hidden">
                         <span class="truncate font-semibold text-on-surface">${fileObj.name}</span>
-                        <div class="flex items-center gap-2 mt-0.5">
-                            <span class="text-xs text-slate-500 font-medium">${sizeMb} MB</span>
-                            <div class="flex items-center gap-1.5">
-                                <span class="bg-slate-100 text-slate-500 px-1 py-0 rounded text-[9px] font-bold uppercase tracking-wider border border-slate-200/50 leading-tight">${format}</span>
-                                <span class="proxy-badge bg-indigo-50 text-indigo-600 px-1 py-0 rounded text-[9px] font-black uppercase tracking-widest border border-indigo-100 leading-tight ${fileObj.proxyPath ? '' : 'hidden'}">Proxy</span>
+                        <div class="flex items-center gap-2 mt-0.5 min-h-[20px]">
+                            <div class="file-metadata flex items-center gap-2">
+                                <span class="text-xs text-slate-500 font-medium">${sizeMb} MB</span>
+                                <div class="flex items-center gap-1.5">
+                                    <span class="bg-slate-100 text-slate-500 px-1 py-0 rounded text-[9px] font-bold uppercase tracking-wider border border-slate-200/50 leading-tight">${format}</span>
+                                    <span class="proxy-badge bg-indigo-50 text-indigo-600 px-1 py-0 rounded text-[9px] font-black uppercase tracking-widest border border-indigo-100 leading-tight ${fileObj.proxyPath ? '' : 'hidden'}">Proxy</span>
+                                </div>
                             </div>
-                            <span class="proxy-status-text text-[10px] font-bold text-indigo-500 animate-pulse"></span>
+                            <div class="proxy-status-container">
+                                <span class="proxy-status-text text-[10px] font-bold text-indigo-500 animate-pulse"></span>
+                            </div>
                         </div>
                     </div>
                     <!-- Delete Button (Visible on Hover) -->
@@ -1411,6 +1530,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     placeholderMsg.classList.remove('hidden');
                     document.getElementById('header-filename').textContent = "비디오를 선택하세요";
                     document.getElementById('header-resolution').textContent = "영상 정보가 여기에 표시됩니다";
+                    document.getElementById('proxy-badge').classList.add('hidden');
                     
                     // 타임라인 숨기지 않고 초기화만 수행
                     trimStartDisplay.textContent = "시작: 00:00:00";
@@ -1426,14 +1546,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (mRight) mRight.style.width = "0%";
                 }
             }
-            
             updateBatchButtonState();
+            updateLibraryEmptyState();
         });
 
         itemDiv.addEventListener('click', () => {
             selectVideo(fileObj);
         });
         libraryList.appendChild(itemDiv);
+        updateLibraryEmptyState();
         updateBatchButtonState();
     }
 
@@ -1553,8 +1674,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (item) {
                 const container = item.querySelector('.conversion-progress-container');
                 const statusText = item.querySelector('.proxy-status-text');
+                const metadata = item.querySelector('.file-metadata');
                 if (container) container.classList.remove('hidden');
                 if (statusText) statusText.textContent = "대기 중...";
+                if (metadata) metadata.classList.add('hidden');
                 const bar = item.querySelector('.conversion-progress-bar');
                 if (bar) bar.style.width = '0%';
             }
