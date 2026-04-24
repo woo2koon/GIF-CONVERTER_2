@@ -247,19 +247,14 @@ def clear_proxy_cache():
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-import subprocess
-import imageio_ffmpeg
-
 @eel.expose
-def convert_to_gif(input_path, output_name, start_time, end_time, fps, resolution, num_colors=256, use_dither=False, loop_playback=True):
+def request_conversion(input_path, file_id, output_name, start_time, end_time, fps, resolution, num_colors=256, use_dither=False, loop_playback=True):
     """
-    Converts a segment of MP4 to GIF using FFmpeg 2-pass method for Adobe-level quality.
+    GIF 변환 요청을 수락하고 백그라운드 스레드에서 작업을 시작합니다.
     """
     try:
-        # 사용자의 시스템 다운로드 폴더 경로 가져오기
+        # 다운로드 폴더 및 경로 설정
         downloads_path = os.path.join(os.path.expanduser("~"), "Downloads")
-        
-        # 파일 중복 확인 및 이름 자동 변경 (예: 파일명 (1).gif)
         base_name, extension = os.path.splitext(output_name)
         output_path = os.path.join(downloads_path, output_name)
         
@@ -267,81 +262,111 @@ def convert_to_gif(input_path, output_name, start_time, end_time, fps, resolutio
         while os.path.exists(output_path):
             output_path = os.path.join(downloads_path, f"{base_name} ({counter}){extension}")
             counter += 1
-            
-        # 임시 작업용 팔레트 파일 경로 (시스템 임시 폴더 사용)
+
+        import threading
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+        
+        # 워커 스레드 시작
+        threading.Thread(
+            target=conversion_worker, 
+            args=(file_id, input_path, output_path, start_time, end_time, fps, resolution, num_colors, use_dither, loop_playback, ffmpeg_exe, downloads_path),
+            daemon=True
+        ).start()
+        
+        return {"status": "processing", "output_path": output_path}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+def conversion_worker(file_id, input_path, output_path, start_time, end_time, fps, resolution, num_colors, use_dither, loop_playback, ffmpeg_exe, downloads_path):
+    """
+    실제로 FFmpeg 2-pass 인코딩을 수행하며 진행률을 보고합니다.
+    """
+    try:
         import tempfile
         temp_dir = tempfile.gettempdir()
-        palette_path = os.path.join(temp_dir, 'gif_palette_tmp.png')
+        import hashlib
+        # 각 작업마다 고유한 팔레트 파일명 생성
+        palette_hash = hashlib.md5(f"{file_id}_{start_time}_{end_time}".encode()).hexdigest()
+        palette_path = os.path.join(temp_dir, f'palette_{palette_hash}.png')
         
-        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
         duration = float(end_time) - float(start_time)
         
-        # Determine scale
+        # 해상도 필터 설정
         scale_filter = ""
         if ":" in str(resolution):
-            # Custom resolution like "1280:720"
             scale_filter = f"scale={resolution}:flags=lanczos,"
         elif "720" in str(resolution):
             scale_filter = "scale=-1:min(ih\\,720):flags=lanczos,"
         elif "480" in str(resolution):
             scale_filter = "scale=-1:min(ih\\,480):flags=lanczos,"
             
-        # Determine dither
         dither_method = "sierra2_4a" if use_dither else "none"
         
-        # Pass 1: Generate optimal palette
+        # --- Pass 1: Palette Generation ---
+        eel.update_conversion_status(file_id, "팔레트 생성 중...", 5)
         filters_pass1 = f"{scale_filter}fps={int(fps)},palettegen=max_colors={num_colors}:stats_mode=diff"
         cmd1 = [
-            ffmpeg_exe, "-y",
-            "-ss", str(start_time),
-            "-t", str(duration),
-            "-i", input_path,
-            "-vf", filters_pass1,
-            palette_path
+            ffmpeg_exe, "-y", "-ss", str(start_time), "-t", str(duration),
+            "-i", input_path, "-vf", filters_pass1, palette_path
         ]
+        
+        # Pass 1 실행
         subprocess.run(cmd1, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         
-        # Pass 2: Generate GIF using the palette
+        # --- Pass 2: GIF Encoding ---
+        eel.update_conversion_status(file_id, "인코딩 중...", 15)
         loop_val = "0" if loop_playback else "-1"
         filters_pass2 = f"{scale_filter}fps={int(fps)}[x];[x][1:v]paletteuse=dither={dither_method}"
         cmd2 = [
-            ffmpeg_exe, "-y",
-            "-ss", str(start_time),
-            "-t", str(duration),
-            "-i", input_path,
-            "-i", palette_path,
-            "-filter_complex", filters_pass2,
-            "-loop", loop_val,
-            output_path
+            ffmpeg_exe, "-y", "-ss", str(start_time), "-t", str(duration),
+            "-i", input_path, "-i", palette_path,
+            "-filter_complex", filters_pass2, "-loop", loop_val, output_path
         ]
-        subprocess.run(cmd2, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         
-        # Clean up palette
+        process = subprocess.Popen(cmd2, stderr=subprocess.PIPE, text=True, errors='ignore', universal_newlines=True)
+        
+        for line in process.stderr:
+            if "time=" in line and duration > 0:
+                time_match = re.search(r"time=(\d+):(\d+):(\d+\.\d+)", line)
+                if time_match:
+                    h, m, s = time_match.groups()
+                    current_time = int(h) * 3600 + int(m) * 60 + float(s)
+                    raw_progress = min(100, (current_time / duration) * 100)
+                    mapped_progress = min(100, int(15 + (raw_progress * 0.85)))
+                    eel.update_conversion_status(file_id, f"인코딩 중... {int(raw_progress)}%", mapped_progress)
+        
+        process.wait()
+        
         if os.path.exists(palette_path):
             os.remove(palette_path)
             
-        # Read the generated GIF and return as base64
-        with open(output_path, "rb") as image_file:
-            encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
-            
-        # Open the Downloads folder automatically to show the result
-        try:
-            if platform.system() == 'Darwin':
-                subprocess.run(['open', downloads_path])
-            elif platform.system() == 'Windows':
-                os.startfile(downloads_path)
-        except:
-            pass
+        if process.returncode == 0:
+            # 다운로드 폴더 열기 (최초 1회 혹은 설정에 따라)
+            try:
+                import platform
+                if platform.system() == 'Darwin':
+                    subprocess.run(['open', downloads_path])
+                elif platform.system() == 'Windows':
+                    os.startfile(downloads_path)
+            except: pass
 
-        return {
-            "status": "success", 
-            "path": output_path, 
-            "data": f"data:image/gif;base64,{encoded_string}"
-        }
-    except subprocess.CalledProcessError as e:
-        return {"status": "error", "message": f"FFmpeg Error: {e.stderr.decode('utf-8', errors='ignore')}"}
+            eel.conversion_completed(file_id, {
+                "status": "success", 
+                "path": output_path
+            })
+        else:
+            eel.conversion_completed(file_id, {"status": "error", "message": "FFmpeg 인코딩 실패"})
+            
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        eel.conversion_completed(file_id, {"status": "error", "message": str(e)})
+
+@eel.expose
+def convert_to_gif(input_path, output_name, start_time, end_time, fps, resolution, num_colors=256, use_dither=False, loop_playback=True):
+    """
+    이전 버전과의 호환성을 위한 동기식 래퍼
+    """
+    return {"status": "error", "message": "Async required. Use request_conversion."}
+
 
 if __name__ == '__main__':
     import sys
@@ -367,7 +392,7 @@ if __name__ == '__main__':
                           '--hide-scrollbars',
                           '--window-name="GIF Converter"'
                       ])
-        if current_os == 'Darwin':
+        elif current_os == 'Darwin':
             # 맥: pywebview 네이티브 엔진 사용 - 크롬 아이콘 방지 및 사파리 코덱 활용
             import webview
             from webview.dom import DOMEventHandler
@@ -406,4 +431,6 @@ if __name__ == '__main__':
             
     except Exception as e:
         print(f"창 실행 실패: {e}")
-        eel.start('index.html', size=(1280, 800), port=8889, mode='default')
+        try:
+            eel.start('index.html', size=(1280, 800), port=8889, mode='default')
+        except: pass

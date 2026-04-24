@@ -67,10 +67,18 @@ document.addEventListener('DOMContentLoaded', () => {
     // 병렬 프록시 큐 관리자
     const proxyQueue = [];
     let activeProxyCount = 0;
-    const MAX_CONCURRENT_PROXIES = 3; // M1 에어 기준 쾌적한 병렬 개수
+    const MAX_CONCURRENT_PROXIES = 3; 
     
-    // 프록시 완료 대기를 위한 Promise 관리
+    // 병렬 변환(GIF 인코딩) 큐 관리자
+    const conversionQueue = [];
+    let activeConversionCount = 0;
+    const MAX_CONCURRENT_CONVERSIONS = 2; 
+    let totalBatchCount = 0; // 이번 배치 작업의 총 파일 수
+    let completedBatchCount = 0; // 완료된 파일 수
+    
+    // 프록시 및 변환 완료 대기를 위한 Promise 관리
     const proxyResolvers = new Map();
+    const conversionResolvers = new Map();
 
     // --- Custom Dropdown Logic ---
     function initCustomDropdowns() {
@@ -413,7 +421,34 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Python에서 프록시 변환 완료 시 호출
+    // Python에서 변환 진행률 업데이트 시 호출
+    eel.expose(update_conversion_status);
+    function update_conversion_status(file_id, status, progress) {
+        const item = document.querySelector(`[data-id="${file_id}"]`);
+        if (!item) return;
+        
+        // 이미 완료된 아이템이면 업데이트 무시 (레이스 컨디션 방지)
+        if (item.dataset.status === 'completed') return;
+
+        const bar = item.querySelector('.conversion-progress-bar');
+        const container = item.querySelector('.conversion-progress-container');
+        const statusText = item.querySelector('.proxy-status-text'); 
+        
+        if (container) container.classList.remove('hidden');
+        if (bar) bar.style.width = `${progress}%`;
+        
+        if (statusText) statusText.textContent = status;
+        
+        // 메인 하단 상태 바 업데이트
+        const fileObj = uploadedFiles.find(f => f.id === file_id);
+        
+        if (fileObj) {
+            const currentNum = Math.min(totalBatchCount, completedBatchCount + activeConversionCount);
+            updateStatus(`변환 중(${currentNum}/${totalBatchCount}): ${fileObj.name} (${progress}%)`);
+        }
+    }
+
+    // Python에서 프록시 변환 완료 시 호출 (복구)
     eel.expose(proxy_completed);
     function proxy_completed(file_id, result) {
         if (proxyResolvers.has(file_id)) {
@@ -428,6 +463,45 @@ document.addEventListener('DOMContentLoaded', () => {
                 resolver.resolve(result);
             } else {
                 resolver.reject(new Error(result.message));
+            }
+        }
+    }
+
+    // Python에서 변환 완료 시 호출
+    eel.expose(conversion_completed);
+    function conversion_completed(file_id, result) {
+        if (conversionResolvers.has(file_id)) {
+            const resolver = conversionResolvers.get(file_id);
+            conversionResolvers.delete(file_id);
+            resolver.resolve(result);
+        }
+        
+        completedBatchCount++; // 완료 카운트 증가
+        
+        const item = document.querySelector(`[data-id="${file_id}"]`);
+        if (item) {
+            item.dataset.status = 'completed'; // 완료 상태 마킹
+            const container = item.querySelector('.conversion-progress-container');
+            const statusText = item.querySelector('.proxy-status-text');
+            
+            // UI 즉시 정리
+            if (container) container.classList.add('hidden');
+            
+            if (result.status === 'success') {
+                if (statusText) statusText.textContent = "완료";
+                item.classList.add('border-green-400', 'bg-green-50');
+                setTimeout(() => {
+                    item.classList.remove('border-green-400', 'bg-green-50');
+                    if (statusText && item.dataset.status === 'completed') statusText.textContent = "";
+                    delete item.dataset.status;
+                }, 3000);
+            } else {
+                if (statusText) statusText.textContent = "실패";
+                item.classList.add('border-red-400', 'bg-red-50');
+                setTimeout(() => {
+                    item.classList.remove('border-red-400', 'bg-red-50');
+                    delete item.dataset.status;
+                }, 3000);
             }
         }
     }
@@ -1293,6 +1367,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="proxy-progress-container w-full h-1 bg-slate-100 rounded-full overflow-hidden hidden">
                     <div class="proxy-progress-bar h-full bg-indigo-500 transition-all duration-300" style="width: 0%"></div>
                 </div>
+                <!-- Conversion Progress Bar Container -->
+                <div class="conversion-progress-container w-full h-1 bg-slate-100 rounded-full overflow-hidden hidden">
+                    <div class="conversion-progress-bar h-full bg-green-500 transition-all duration-300" style="width: 0%"></div>
+                </div>
             </div>
         `;
 
@@ -1359,6 +1437,64 @@ document.addEventListener('DOMContentLoaded', () => {
         updateBatchButtonState();
     }
 
+    async function processConversionQueue() {
+        // 더 이상 처리할 작업이 없고 활성 작업도 없는 경우 종료 처리
+        if (conversionQueue.length === 0 && activeConversionCount === 0) {
+            updateStatus(`전체 완료! (${totalBatchCount}/${totalBatchCount})`);
+            setTimeout(() => {
+                if (activeConversionCount === 0 && conversionQueue.length === 0) {
+                    updateStatus("");
+                    totalBatchCount = 0;
+                    completedBatchCount = 0;
+                }
+            }, 3000);
+            convertBtn.disabled = false;
+            convertBtn.style.opacity = '1';
+            convertSplitBtn.disabled = false;
+            return;
+        }
+
+        // 큐가 비었거나 이미 최대 병렬 수 도달 시 리턴
+        if (conversionQueue.length === 0 || activeConversionCount >= MAX_CONCURRENT_CONVERSIONS) return;
+
+        while (conversionQueue.length > 0 && activeConversionCount < MAX_CONCURRENT_CONVERSIONS) {
+            const task = conversionQueue.shift();
+            activeConversionCount++;
+            
+            const { fileObj, params } = task;
+            
+            // 작업 시작 상태 표시
+            update_conversion_status(fileObj.id, "준비 중...", 2);
+            
+            try {
+                const res = await eel.request_conversion(
+                    fileObj.path, 
+                    fileObj.id, 
+                    params.outName, 
+                    params.start, 
+                    params.end, 
+                    params.fps, 
+                    params.resolution, 
+                    params.numColors, 
+                    params.useDither, 
+                    params.loopPlayback
+                )();
+
+                if (res.status === 'processing') {
+                    await new Promise((resolve, reject) => {
+                        conversionResolvers.set(fileObj.id, { resolve, reject });
+                    });
+                }
+            } catch (err) {
+                console.error("Conversion error for", fileObj.name, err);
+                conversion_completed(fileObj.id, {status: "error", message: err.message});
+            } finally {
+                activeConversionCount--;
+                processConversionQueue();
+            }
+        }
+    }
+
     async function runConversion(useOverride = false) {
         const checkboxes = document.querySelectorAll('.lib-checkbox:checked');
         let selectedFiles = [];
@@ -1372,7 +1508,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Current UI values (for override mode)
+        // UI 값 캡처
         const uiFps = parseInt(fpsSlider.value);
         const resActive = document.querySelector('#res-dropdown .dropdown-item.active');
         let uiResolution = resActive ? resActive.dataset.value : "중간 (720p)";
@@ -1387,59 +1523,49 @@ document.addEventListener('DOMContentLoaded', () => {
         convertBtn.disabled = true;
         convertBtn.style.opacity = '0.5';
         convertSplitBtn.disabled = true;
+        // 이번 배치 작업 정보 초기화
+        totalBatchCount = selectedFiles.length;
+        completedBatchCount = 0;
 
-        let successCount = 0;
+        for (let i = 0; i < selectedFiles.length; i++) {
+            const fileObj = selectedFiles[i];
+            let outName = "output_" + fileObj.name.replace(/\.[^/.]+$/, "") + ".gif";
+            const start = fileObj.trimStart;
+            const end = fileObj.trimEnd || 99999;
+            
+            let fps, resolution, numColors, useDither, loopPlayback;
 
-        try {
-            for (let i = 0; i < selectedFiles.length; i++) {
-                const fileObj = selectedFiles[i];
-                updateStatus(`변환 중... (${i + 1}/${selectedFiles.length}) : ${fileObj.name}`);
-
-                let outName = "output_" + fileObj.name.replace(/\.[^/.]+$/, "") + ".gif";
-                const start = fileObj.trimStart;
-                const end = fileObj.trimEnd || 99999;
-                
-                let fps, resolution, numColors, useDither, loopPlayback;
-
-                if (useOverride) {
-                    fps = uiFps;
-                    resolution = uiResolution;
-                    numColors = uiNumColors;
-                    useDither = uiUseDither;
-                    loopPlayback = uiLoopPlayback;
-                } else {
-                    fps = fileObj.fps || 24;
-                    resolution = fileObj.resolution || "중간 (720p)";
-                    if (resolution === "직접 설정") {
-                        const w = fileObj.customWidth || fileObj.width;
-                        const h = fileObj.customHeight || fileObj.height;
-                        resolution = `${w}:${h}`;
-                    }
-                    numColors = fileObj.numColors || 256;
-                    useDither = fileObj.useDither || false;
-                    loopPlayback = fileObj.loopPlayback !== undefined ? fileObj.loopPlayback : true;
+            if (useOverride) {
+                fps = uiFps; resolution = uiResolution; numColors = uiNumColors; useDither = uiUseDither; loopPlayback = uiLoopPlayback;
+            } else {
+                fps = fileObj.fps || 24;
+                resolution = fileObj.resolution || "중간 (720p)";
+                if (resolution === "직접 설정") {
+                    resolution = `${fileObj.customWidth || fileObj.width}:${fileObj.customHeight || fileObj.height}`;
                 }
-
-                const res = await eel.convert_to_gif(fileObj.path, outName, start, end, fps, resolution, numColors, useDither, loopPlayback)();
-
-                if (res.status === 'success') {
-                    successCount++;
-                    updateStatus(`${fileObj.name} 완료!`);
-                    await new Promise(r => setTimeout(r, 300));
-                } else {
-                    console.error("오류: " + res.message);
-                }
+                numColors = fileObj.numColors || 256;
+                useDither = fileObj.useDither || false;
+                loopPlayback = fileObj.loopPlayback !== undefined ? fileObj.loopPlayback : true;
             }
-            updateStatus(`완료! 총 ${successCount}개 변환 완료.`);
-            setTimeout(() => updateStatus(""), 4000);
-        } catch (error) {
-            updateStatus("변환 실패: " + error);
-        } finally {
-            convertBtn.disabled = false;
-            convertBtn.style.opacity = '1';
-            convertSplitBtn.disabled = false;
-            updateBatchButtonState();
+
+            // 모든 선택된 파일에 대해 '대기 중' UI 즉시 표시
+            const item = document.querySelector(`[data-id="${fileObj.id}"]`);
+            if (item) {
+                const container = item.querySelector('.conversion-progress-container');
+                const statusText = item.querySelector('.proxy-status-text');
+                if (container) container.classList.remove('hidden');
+                if (statusText) statusText.textContent = "대기 중...";
+                const bar = item.querySelector('.conversion-progress-bar');
+                if (bar) bar.style.width = '0%';
+            }
+
+            conversionQueue.push({
+                fileObj,
+                params: { outName, start, end, fps, resolution, numColors, useDither, loopPlayback }
+            });
         }
+        
+        processConversionQueue();
     }
 
     convertBtn.addEventListener('click', () => runConversion(false));
