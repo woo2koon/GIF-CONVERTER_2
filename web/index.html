@@ -411,11 +411,25 @@
 
         <aside class="w-80 bg-surface-container-low flex flex-col h-full border-l border-white/5">
             <!-- Scrollable Settings Area -->
-            <div class="flex-1 overflow-y-auto p-6 flex flex-col gap-6 custom-scrollbar">
+            <div class="flex-1 overflow-y-auto p-6 flex flex-col gap-4 custom-scrollbar">
                 <h2 class="font-sans text-lg font-bold text-on-surface mb-2">출력 설정</h2>
 
+                <!-- Batch Sync Toggle -->
+                <div id="batch-sync-container" class="hidden opacity-0 max-h-0 overflow-hidden transition-all duration-500 ease-in-out mb-1">
+                    <div class="flex items-center justify-between bg-indigo-100/70 p-3 px-4 rounded-xl border border-indigo-200">
+                        <div class="flex flex-col">
+                            <span class="text-[13px] font-bold text-indigo-800 uppercase tracking-tight font-sans">모든 구간에 적용</span>
+                            <span class="text-[11px] text-indigo-600 font-medium font-sans">변경 시 모든 클립 동기화</span>
+                        </div>
+                        <div id="batch-sync-toggle" data-active="false"
+                            class="w-10 h-5 bg-slate-300 rounded-full relative p-0.5 cursor-pointer transition-colors">
+                            <div class="w-4 h-4 bg-white rounded-full transition-transform pointer-events-none shadow-sm"></div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Resolution -->
-                <div class="space-y-3">
+                <div class="space-y-2">
                     <label class="block text-xs font-bold text-on-surface-variant uppercase tracking-widest font-sans">해상도</label>
                     <div class="relative custom-dropdown" id="res-dropdown">
                         <button class="dropdown-trigger w-full bg-surface-container-lowest border-none rounded-xl py-3 px-4 text-base font-medium flex items-center justify-between shadow-sm hover:bg-slate-50 transition-colors">
@@ -447,7 +461,7 @@
                 </div>
 
                 <!-- Color Depth -->
-                <div class="space-y-3">
+                <div class="space-y-2">
                     <label class="block text-xs font-bold text-on-surface-variant uppercase tracking-widest font-sans">색상 수</label>
                     <div class="relative custom-dropdown" id="colors-dropdown">
                         <button class="dropdown-trigger w-full bg-surface-container-lowest border-none rounded-xl py-3 px-4 text-base font-medium flex items-center justify-between shadow-sm hover:bg-slate-50 transition-colors">
@@ -464,7 +478,7 @@
                 </div>
 
                 <!-- Frame Rate -->
-                <div class="space-y-4">
+                <div class="space-y-3">
                     <div class="flex justify-between items-center">
                         <label class="text-xs font-bold text-on-surface-variant uppercase tracking-widest font-sans">프레임 레이트</label>
                         <span id="fps-display" class="text-sm font-bold text-primary font-sans">24 FPS</span>
@@ -485,7 +499,7 @@
                 </div>
 
                 <!-- Optimization Toggles -->
-                <div class="bg-surface-container-lowest p-4 rounded-xl space-y-4 shadow-sm border border-slate-100">
+                <div class="bg-surface-container-lowest p-3 rounded-xl space-y-3 shadow-sm border border-slate-100">
                     <div class="flex items-center justify-between">
                         <div class="flex flex-col">
                             <span class="text-sm font-bold text-on-surface">반복 재생</span>

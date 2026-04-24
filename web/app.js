@@ -39,6 +39,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const convertSplitBtn = document.getElementById('convert-split-btn');
     const batchMenu = document.getElementById('batch-menu');
     const batchConvertOverrideBtn = document.getElementById('batch-convert-override-btn');
+    const batchSyncToggle = document.getElementById('batch-sync-toggle');
 
     // Timeline Elements
     const timelineArea = document.getElementById('timeline-area');
@@ -213,9 +214,81 @@ document.addEventListener('DOMContentLoaded', () => {
     const customHeightInput = document.getElementById('custom-height');
     const aspectRatioLock = document.getElementById('aspect-ratio-lock');
 
+    batchSyncToggle.addEventListener('click', () => {
+        const active = batchSyncToggle.dataset.active !== 'true';
+        updateToggleUI(batchSyncToggle, active);
+        
+        // 파일별로 동기화 상태 저장
+        if (selectedFileObj) {
+            selectedFileObj.isBatchSync = active;
+        }
+
+        // 스위치를 켜는 즉시 현재 설정을 다른 모든 구간에 복사
+        if (active && selectedFileObj && selectedSegmentObj) {
+            const props = ['resolution', 'fps', 'numColors', 'useDither', 'loopPlayback', 'customWidth', 'customHeight', 'aspectRatioLock'];
+            
+            if (selectedFileObj.draft) {
+                props.forEach(p => {
+                    if (selectedSegmentObj[p] !== undefined) selectedFileObj.draft[p] = selectedSegmentObj[p];
+                });
+            }
+            selectedFileObj.segments.forEach(seg => {
+                if (seg.id !== selectedSegmentObj.id) {
+                    props.forEach(p => {
+                        if (selectedSegmentObj[p] !== undefined) seg[p] = selectedSegmentObj[p];
+                    });
+                }
+            });
+            renderSegments(selectedFileObj);
+            updateStatus("현재 설정을 모든 구간에 일괄 적용했습니다.");
+            setTimeout(() => updateStatus(""), 2000);
+        }
+    });
+
+    function updateSyncToggleVisibility() {
+        const container = document.getElementById('batch-sync-container');
+        if (!selectedFileObj || !container) return;
+        
+        // 대기열에 실제로 저장된 항목이 2개 이상일 때만 노출
+        const segmentCount = selectedFileObj.segments.length;
+        
+        if (segmentCount >= 2) {
+            container.classList.remove('hidden');
+            setTimeout(() => {
+                container.classList.remove('opacity-0', 'max-h-0');
+                container.classList.add('opacity-100', 'max-h-40');
+            }, 10);
+        } else {
+            container.classList.add('opacity-0', 'max-h-0');
+            container.classList.remove('opacity-100', 'max-h-40');
+            setTimeout(() => {
+                container.classList.add('hidden');
+            }, 500); // transition 시간과 맞춤
+            
+            // 숨겨질 때 동기화 모드도 자동으로 해제 (안전을 위해)
+            // 단, 파일 객체에 저장된 값은 유지하되 UI만 비활성화 느낌으로 처리
+            updateToggleUI(batchSyncToggle, false);
+        }
+    }
+
+    function syncSetting(property, value) {
+        if (!selectedFileObj) return;
+        const isBatchSync = selectedFileObj.isBatchSync || false;
+        
+        if (isBatchSync) {
+            if (selectedFileObj.draft) selectedFileObj.draft[property] = value;
+            selectedFileObj.segments.forEach(seg => {
+                seg[property] = value;
+            });
+            renderSegments(selectedFileObj);
+        } else {
+            if (selectedSegmentObj) selectedSegmentObj[property] = value;
+        }
+    }
+
     resDropdown.addEventListener('change', (e) => {
         const val = e.detail.value;
-        if (selectedSegmentObj) selectedSegmentObj.resolution = val;
+        syncSetting('resolution', val);
         
         if (val === "직접 설정") {
             customResContainer.classList.remove('hidden');
@@ -230,39 +303,69 @@ document.addEventListener('DOMContentLoaded', () => {
 
     customWidthInput.addEventListener('input', () => {
         const val = parseInt(customWidthInput.value);
-        if (selectedSegmentObj) selectedSegmentObj.customWidth = val;
+        const isBatchSync = batchSyncToggle.dataset.active === 'true';
         
-        if (aspectRatioLock.checked && selectedFileObj && selectedSegmentObj) {
-            const ratio = selectedFileObj.width / selectedFileObj.height;
-            customHeightInput.value = Math.round(val / ratio);
-            selectedSegmentObj.customHeight = parseInt(customHeightInput.value);
+        if (isBatchSync) {
+            if (selectedFileObj.draft) selectedFileObj.draft.customWidth = val;
+            selectedFileObj.segments.forEach(seg => seg.customWidth = val);
+        } else if (selectedSegmentObj) {
+            selectedSegmentObj.customWidth = val;
         }
+        
+        if (aspectRatioLock.checked && selectedFileObj) {
+            const ratio = selectedFileObj.width / selectedFileObj.height;
+            const newHeight = Math.round(val / ratio);
+            customHeightInput.value = newHeight;
+            
+            if (isBatchSync) {
+                if (selectedFileObj.draft) selectedFileObj.draft.customHeight = newHeight;
+                selectedFileObj.segments.forEach(seg => seg.customHeight = newHeight);
+            } else if (selectedSegmentObj) {
+                selectedSegmentObj.customHeight = newHeight;
+            }
+        }
+        if (isBatchSync) renderSegments(selectedFileObj);
     });
 
     customHeightInput.addEventListener('input', () => {
         const val = parseInt(customHeightInput.value);
-        if (selectedSegmentObj) selectedSegmentObj.customHeight = val;
-        
-        if (aspectRatioLock.checked && selectedFileObj && selectedSegmentObj) {
-            const ratio = selectedFileObj.width / selectedFileObj.height;
-            customWidthInput.value = Math.round(val * ratio);
-            selectedSegmentObj.customWidth = parseInt(customWidthInput.value);
+        const isBatchSync = batchSyncToggle.dataset.active === 'true';
+
+        if (isBatchSync) {
+            if (selectedFileObj.draft) selectedFileObj.draft.customHeight = val;
+            selectedFileObj.segments.forEach(seg => seg.customHeight = val);
+        } else if (selectedSegmentObj) {
+            selectedSegmentObj.customHeight = val;
         }
+        
+        if (aspectRatioLock.checked && selectedFileObj) {
+            const ratio = selectedFileObj.width / selectedFileObj.height;
+            const newWidth = Math.round(val * ratio);
+            customWidthInput.value = newWidth;
+            
+            if (isBatchSync) {
+                if (selectedFileObj.draft) selectedFileObj.draft.customWidth = newWidth;
+                selectedFileObj.segments.forEach(seg => seg.customWidth = newWidth);
+            } else if (selectedSegmentObj) {
+                selectedSegmentObj.customWidth = newWidth;
+            }
+        }
+        if (isBatchSync) renderSegments(selectedFileObj);
     });
 
     aspectRatioLock.addEventListener('change', () => {
-        if (selectedSegmentObj) selectedSegmentObj.aspectRatioLock = aspectRatioLock.checked;
+        syncSetting('aspectRatioLock', aspectRatioLock.checked);
     });
 
     colorsDropdown.addEventListener('change', (e) => {
-        if (selectedSegmentObj) selectedSegmentObj.numColors = parseInt(e.detail.value);
+        syncSetting('numColors', parseInt(e.detail.value));
     });
 
     // Update FPS display
     fpsSlider.addEventListener('input', (e) => {
         const val = parseInt(e.target.value);
         fpsDisplay.textContent = `${val} FPS`;
-        if (selectedSegmentObj) selectedSegmentObj.fps = val;
+        syncSetting('fps', val);
     });
 
     function updateToggleUI(toggle, active) {
@@ -282,13 +385,13 @@ document.addEventListener('DOMContentLoaded', () => {
     loopToggle.addEventListener('click', () => {
         const active = loopToggle.dataset.active !== 'true';
         updateToggleUI(loopToggle, active);
-        if (selectedSegmentObj) selectedSegmentObj.loopPlayback = active;
+        syncSetting('loopPlayback', active);
     });
 
     ditherToggle.addEventListener('click', () => {
         const active = ditherToggle.dataset.active !== 'true';
         updateToggleUI(ditherToggle, active);
-        if (selectedSegmentObj) selectedSegmentObj.useDither = active;
+        syncSetting('useDither', active);
     });
 
     function updateBatchButtonState() {
@@ -559,7 +662,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const overallProgress = Math.round(totalProgress / targets.length);
             if (bar) bar.style.width = `${overallProgress}%`;
             if (statusText) statusText.textContent = `인코딩 중... ${overallProgress}%`;
-        }
+            
+        updateSyncToggleVisibility();
+    }
 
         // 전체 글로벌 진행률 계산 (전체 대기열 기준)
         const activeTasksProgress = Array.from(conversionResolvers.keys()).reduce((acc, tid) => {
@@ -974,6 +1079,11 @@ document.addEventListener('DOMContentLoaded', () => {
         // 4. Toggles
         updateToggleUI(loopToggle, seg.loopPlayback !== undefined ? seg.loopPlayback : true);
         updateToggleUI(ditherToggle, seg.useDither !== undefined ? seg.useDither : false);
+        
+        // 5. Batch Sync Toggle 상태 복구
+        updateToggleUI(batchSyncToggle, fileObj.isBatchSync || false);
+        
+        updateSyncToggleVisibility();
     }
 
     mainPlayer.addEventListener('click', togglePlayPause);
@@ -1398,7 +1508,11 @@ document.addEventListener('DOMContentLoaded', () => {
         let x = e.clientX - rect.left;
         x = Math.max(0, Math.min(x, rect.width));
         const pct = x / rect.width;
-        const time = pct * selectedFileObj.duration;
+        const fps = selectedFileObj.fps || 24;
+        let time = pct * selectedFileObj.duration;
+        
+        // 프레임 스냅: 화면 해상도(픽셀)에 상관없이 항상 프레임 경계선에 시간이 붙도록 함
+        time = Math.round(time * fps) / fps;
         
         lastTargetTime = time; // 목표 시간 기록
         if (seekLockTimeout) clearTimeout(seekLockTimeout);
@@ -1461,7 +1575,11 @@ document.addEventListener('DOMContentLoaded', () => {
         let x = e.clientX - rect.left;
         x = Math.max(0, Math.min(x, rect.width));
         const pct = x / rect.width;
-        const targetTime = pct * selectedFileObj.duration;
+        const fps = selectedFileObj.fps || 24;
+        let targetTime = pct * selectedFileObj.duration;
+        
+        // 프레임 스냅 적용
+        targetTime = Math.round(targetTime * fps) / fps;
         
         // 목표 시간 기록 및 잠금
         lastTargetTime = targetTime;
@@ -1555,7 +1673,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const end = selectedSegmentObj.end;
 
             const frameDuration = 1 / (selectedFileObj.fps || 30);
-            if (currentTime >= end - (frameDuration * 0.9) || currentTime < start - 0.3) {
+            if (currentTime >= end - (frameDuration * 1.2 + 0.001) || currentTime < start - 0.3) {
                 mainPlayer.currentTime = start;
             }
         }
@@ -1573,8 +1691,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 const fps = selectedFileObj.fps || 30;
                 const frameDuration = 1 / fps;
 
-                // 아웃점 한 프레임 밀림 방지를 위해 한 프레임에 가깝게(0.9 프레임) 일찍 루프 처리
-                if (currentTime >= end - (frameDuration * 0.9)) {
+                // 아웃점 한 프레임 밀림 방지를 위해 약 1.2 프레임 정도 더 공격적으로 일찍 루프 처리
+                // 드롭프레임 및 브라우저 렌더링 오차를 고려하여 넉넉하게 잡음
+                if (currentTime >= end - (frameDuration * 1.2 + 0.001)) {
                     mainPlayer.currentTime = start;
                 }
                 
@@ -1848,6 +1967,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
             container.appendChild(segDiv);
         });
+        
+        updateSyncToggleVisibility();
+        renderGhostMarkers();
     }
 
     function addLibraryItem(fileObj) {
