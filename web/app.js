@@ -53,6 +53,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const filmstripContainer = document.getElementById('filmstrip-container');
 
     const resetBtn = document.getElementById('trim-reset-btn');
+    const addSegmentBtn = document.getElementById('add-segment-btn');
 
     // Custom Player Controls
     const playPauseBtn = document.getElementById('play-pause-btn');
@@ -71,6 +72,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentVideoFileName = null;
     let videoDuration = 0;
     let selectedFileObj = null;
+    let selectedSegmentObj = null; // 현재 선택된 구간
     let uploadedFiles = [];
     let isProcessingFiles = false;
     
@@ -213,13 +215,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     resDropdown.addEventListener('change', (e) => {
         const val = e.detail.value;
-        if (selectedFileObj) selectedFileObj.resolution = val;
+        if (selectedSegmentObj) selectedSegmentObj.resolution = val;
         
         if (val === "직접 설정") {
             customResContainer.classList.remove('hidden');
-            if (selectedFileObj) {
-                customWidthInput.value = selectedFileObj.customWidth || selectedFileObj.width;
-                customHeightInput.value = selectedFileObj.customHeight || selectedFileObj.height;
+            if (selectedSegmentObj) {
+                customWidthInput.value = selectedSegmentObj.customWidth || selectedFileObj.width;
+                customHeightInput.value = selectedSegmentObj.customHeight || selectedFileObj.height;
             }
         } else {
             customResContainer.classList.add('hidden');
@@ -228,39 +230,39 @@ document.addEventListener('DOMContentLoaded', () => {
 
     customWidthInput.addEventListener('input', () => {
         const val = parseInt(customWidthInput.value);
-        if (selectedFileObj) selectedFileObj.customWidth = val;
+        if (selectedSegmentObj) selectedSegmentObj.customWidth = val;
         
-        if (aspectRatioLock.checked && selectedFileObj) {
+        if (aspectRatioLock.checked && selectedFileObj && selectedSegmentObj) {
             const ratio = selectedFileObj.width / selectedFileObj.height;
             customHeightInput.value = Math.round(val / ratio);
-            selectedFileObj.customHeight = parseInt(customHeightInput.value);
+            selectedSegmentObj.customHeight = parseInt(customHeightInput.value);
         }
     });
 
     customHeightInput.addEventListener('input', () => {
         const val = parseInt(customHeightInput.value);
-        if (selectedFileObj) selectedFileObj.customHeight = val;
+        if (selectedSegmentObj) selectedSegmentObj.customHeight = val;
         
-        if (aspectRatioLock.checked && selectedFileObj) {
+        if (aspectRatioLock.checked && selectedFileObj && selectedSegmentObj) {
             const ratio = selectedFileObj.width / selectedFileObj.height;
             customWidthInput.value = Math.round(val * ratio);
-            selectedFileObj.customWidth = parseInt(customWidthInput.value);
+            selectedSegmentObj.customWidth = parseInt(customWidthInput.value);
         }
     });
 
     aspectRatioLock.addEventListener('change', () => {
-        if (selectedFileObj) selectedFileObj.aspectRatioLock = aspectRatioLock.checked;
+        if (selectedSegmentObj) selectedSegmentObj.aspectRatioLock = aspectRatioLock.checked;
     });
 
     colorsDropdown.addEventListener('change', (e) => {
-        if (selectedFileObj) selectedFileObj.numColors = parseInt(e.detail.value);
+        if (selectedSegmentObj) selectedSegmentObj.numColors = parseInt(e.detail.value);
     });
 
     // Update FPS display
     fpsSlider.addEventListener('input', (e) => {
         const val = parseInt(e.target.value);
         fpsDisplay.textContent = `${val} FPS`;
-        if (selectedFileObj) selectedFileObj.fps = val;
+        if (selectedSegmentObj) selectedSegmentObj.fps = val;
     });
 
     function updateToggleUI(toggle, active) {
@@ -280,13 +282,13 @@ document.addEventListener('DOMContentLoaded', () => {
     loopToggle.addEventListener('click', () => {
         const active = loopToggle.dataset.active !== 'true';
         updateToggleUI(loopToggle, active);
-        if (selectedFileObj) selectedFileObj.loopPlayback = active;
+        if (selectedSegmentObj) selectedSegmentObj.loopPlayback = active;
     });
 
     ditherToggle.addEventListener('click', () => {
         const active = ditherToggle.dataset.active !== 'true';
         updateToggleUI(ditherToggle, active);
-        if (selectedFileObj) selectedFileObj.useDither = active;
+        if (selectedSegmentObj) selectedSegmentObj.useDither = active;
     });
 
     function updateBatchButtonState() {
@@ -386,16 +388,29 @@ document.addEventListener('DOMContentLoaded', () => {
                     fps: res.fps || 24,
                     objectUrl: initialUrl,
                     proxyPath: proxyPath,
-                    trimStart: 0,
-                    trimEnd: res.duration || 0,
-                    loopPlayback: true,
-                    useDither: false,
-                    aspectRatioLock: aspectRatioLock.checked,
-                    customWidth: parseInt(customWidthInput.value) || res.width,
-                    customHeight: parseInt(customHeightInput.value) || res.height,
+                    segments: [], // 구간 목록
+                    activeSegmentId: null, // 현재 편집 중인 구간 ID
                     isProxying: false,
                     proxyStatusShown: false
                 };
+
+                // 기본 편집용 드래프트 생성 (목록에는 추가하지 않음)
+                fileObj.draft = {
+                    id: `draft_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                    start: 0,
+                    end: res.duration || 0,
+                    fps: res.fps || 24,
+                    resolution: "중간 (720p)",
+                    numColors: 256,
+                    useDither: false,
+                    loopPlayback: true,
+                    aspectRatioLock: aspectRatioLock.checked,
+                    customWidth: parseInt(customWidthInput.value) || res.width,
+                    customHeight: parseInt(customHeightInput.value) || res.height,
+                    status: 'idle',
+                    progress: 0
+                };
+                fileObj.activeSegmentId = null; 
 
                 uploadedFiles.push(fileObj);
                 addLibraryItem(fileObj);
@@ -509,12 +524,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Python에서 변환 진행률 업데이트 시 호출
     eel.expose(update_conversion_status);
-    function update_conversion_status(file_id, status, progress) {
+    function update_conversion_status(task_id, status, progress) {
+        const [file_id, seg_id] = task_id.includes('@@') ? task_id.split('@@') : [task_id, null];
+        
+        const fileObj = uploadedFiles.find(f => f.id === file_id);
+        if (!fileObj) return;
+
         const item = document.querySelector(`[data-id="${file_id}"]`);
         if (!item) return;
         
-        // 이미 완료된 아이템이면 업데이트 무시 (레이스 컨디션 방지)
-        if (item.dataset.status === 'completed') return;
+        if (seg_id) {
+            const seg = fileObj.segments.find(s => s.id === seg_id);
+            if (seg) {
+                seg.status = 'encoding';
+                seg.progress = progress;
+                renderSegments(fileObj);
+            }
+        }
 
         const bar = item.querySelector('.conversion-progress-bar');
         const container = item.querySelector('.conversion-progress-container');
@@ -523,19 +549,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (container) container.classList.remove('hidden');
         if (bar) bar.style.width = `${progress}%`;
         
-        // 변환 중에는 용량/포맷 정보를 숨겨 레이아웃 붕괴 방지
         const metadata = item.querySelector('.file-metadata');
         if (metadata) metadata.classList.add('hidden');
 
         if (statusText) statusText.textContent = status;
         
-        // 메인 하단 상태 바 업데이트
-        const fileObj = uploadedFiles.find(f => f.id === file_id);
-        
-        if (fileObj) {
-            const currentNum = Math.min(totalBatchCount, completedBatchCount + activeConversionCount);
-            updateStatus(`변환 중(${currentNum}/${totalBatchCount}): ${fileObj.name} (${progress}%)`);
-        }
+        const currentNum = Math.min(totalBatchCount, completedBatchCount + activeConversionCount);
+        updateStatus(`변환 중(${currentNum}/${totalBatchCount}): ${fileObj.name} (${progress}%)`);
     }
 
     // Python에서 프록시 변환 완료 시 호출 (복구)
@@ -547,9 +567,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             if (result.status === 'success') {
                 const fileObj = uploadedFiles.find(f => f.id === file_id);
-                if (fileObj) {
-                    handleProxyReady(fileObj, result.proxy_path);
-                }
+                if (fileObj) handleProxyReady(fileObj, result.proxy_path);
                 resolver.resolve(result);
             } else {
                 resolver.reject(new Error(result.message));
@@ -559,40 +577,38 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Python에서 변환 완료 시 호출
     eel.expose(conversion_completed);
-    function conversion_completed(file_id, result) {
-        if (conversionResolvers.has(file_id)) {
-            const resolver = conversionResolvers.get(file_id);
-            conversionResolvers.delete(file_id);
+    function conversion_completed(task_id, result) {
+        const [file_id, seg_id] = task_id.includes('@@') ? task_id.split('@@') : [task_id, null];
+        
+        if (conversionResolvers.has(task_id)) {
+            const resolver = conversionResolvers.get(task_id);
+            conversionResolvers.delete(task_id);
             resolver.resolve(result);
         }
         
-        completedBatchCount++; // 완료 카운트 증가
+        completedBatchCount++;
         
+        const fileObj = uploadedFiles.find(f => f.id === file_id);
         const item = document.querySelector(`[data-id="${file_id}"]`);
+        
+        if (fileObj && seg_id) {
+            const seg = fileObj.segments.find(s => s.id === seg_id);
+            if (seg) {
+                seg.status = result.status === 'success' ? 'completed' : 'error';
+                seg.progress = 100;
+                renderSegments(fileObj);
+            }
+        }
+
         if (item) {
-            item.dataset.status = 'completed'; // 완료 상태 마킹
-            const container = item.querySelector('.conversion-progress-container');
             const statusText = item.querySelector('.proxy-status-text');
-            
-            // UI 즉시 정리
-            if (container) container.classList.add('hidden');
-            
             if (result.status === 'success') {
                 if (statusText) statusText.textContent = "완료";
                 item.classList.add('border-green-400', 'bg-green-50');
                 setTimeout(() => {
                     item.classList.remove('border-green-400', 'bg-green-50');
-                    if (statusText && item.dataset.status === 'completed') statusText.textContent = "";
                     const metadata = item.querySelector('.file-metadata');
                     if (metadata) metadata.classList.remove('hidden');
-                    delete item.dataset.status;
-                }, 3000);
-            } else {
-                if (statusText) statusText.textContent = "실패";
-                item.classList.add('border-red-400', 'bg-red-50');
-                setTimeout(() => {
-                    item.classList.remove('border-red-400', 'bg-red-50');
-                    delete item.dataset.status;
                 }, 3000);
             }
         }
@@ -748,16 +764,33 @@ document.addEventListener('DOMContentLoaded', () => {
             if (filmstripContainer.children.length >= targetCount) break;
         }
     }
+    let isEditingSavedSegment = false; 
 
     function selectVideo(fileObj) {
-        if (currentVideoPath === fileObj.path && !mainPlayer.error) return;
-
-        // 상태 초기화
+        const isSameFile = (selectedFileObj && selectedFileObj.id === fileObj.id);
+        
+        // 상태 업데이트
         selectedFileObj = fileObj;
+        selectedSegmentObj = getActiveSegment(fileObj);
+        
         currentVideoPath = fileObj.path;
         currentVideoFileName = fileObj.name;
         
         document.getElementById('header-filename').textContent = fileObj.name;
+        
+        // 같은 파일인 경우 소스 로딩을 건너뛰고 UI 동기화 및 재생 시점만 조정합니다.
+        if (isSameFile) {
+            syncUIToFile(fileObj);
+            updateTimelineUI();
+            
+            // 사용자가 선택한 세그먼트의 시작점으로 이동 (UX 개선)
+            if (selectedSegmentObj) {
+                mainPlayer.currentTime = selectedSegmentObj.start;
+                updatePlayheadUI(selectedSegmentObj.start);
+            }
+            return;
+        }
+
         document.getElementById('header-resolution').textContent = "로딩 중...";
         
         // 이전 리소스 해제 (로딩 오류 방지 핵심)
@@ -778,10 +811,20 @@ document.addEventListener('DOMContentLoaded', () => {
             
             mainPlayer.onloadeddata = () => {
                 updateTimelineUI();
-                updateToggleUI(loopToggle, fileObj.loopPlayback);
-                updateToggleUI(ditherToggle, fileObj.useDither);
-                fpsSlider.value = fileObj.fps;
-                fpsDisplay.textContent = `${fileObj.fps} FPS`;
+                
+                // 로드 완료 후 선택된 세그먼트의 시작점으로 이동
+                if (selectedSegmentObj) {
+                    mainPlayer.currentTime = selectedSegmentObj.start;
+                    updatePlayheadUI(selectedSegmentObj.start);
+                }
+                
+                const activeSeg = getActiveSegment(fileObj);
+                if (activeSeg) {
+                    updateToggleUI(loopToggle, activeSeg.loopPlayback);
+                    updateToggleUI(ditherToggle, activeSeg.useDither);
+                    fpsSlider.value = activeSeg.fps;
+                    fpsDisplay.textContent = `${activeSeg.fps} FPS`;
+                }
                 
                 // 프록시 상태에 따른 오버레이 제어
                 const overlay = document.getElementById('proxy-overlay');
@@ -810,13 +853,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function syncUIToFile(fileObj) {
         if (!fileObj) return;
+        const seg = getActiveSegment(fileObj);
+        if (!seg) return;
 
         // 1. FPS
-        fpsSlider.value = fileObj.fps || 24;
+        fpsSlider.value = seg.fps || 24;
         fpsDisplay.textContent = `${fpsSlider.value} FPS`;
 
         // 2. Resolution Dropdown
-        const resValue = fileObj.resolution || "중간 (720p)";
+        const resValue = seg.resolution || "중간 (720p)";
         const resItems = document.querySelectorAll('#res-dropdown .dropdown-item');
         resItems.forEach(item => {
             if (item.dataset.value === resValue) {
@@ -827,9 +872,9 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         
         if (resValue === "직접 설정") {
-            customWidthInput.value = fileObj.customWidth || fileObj.width;
-            customHeightInput.value = fileObj.customHeight || fileObj.height;
-            aspectRatioLock.checked = fileObj.aspectRatioLock !== undefined ? fileObj.aspectRatioLock : true;
+            customWidthInput.value = seg.customWidth || fileObj.width;
+            customHeightInput.value = seg.customHeight || fileObj.height;
+            aspectRatioLock.checked = seg.aspectRatioLock !== undefined ? seg.aspectRatioLock : true;
             customResContainer.classList.remove('hidden');
         } else {
             customResContainer.classList.add('hidden');
@@ -937,11 +982,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 트림 구간(시작/종료) UI만 업데이트 (자주 발생하지 않음)
     function updateTrimUI() {
-        if (!selectedFileObj || selectedFileObj.duration === 0) return;
+        if (!selectedFileObj || !selectedSegmentObj || selectedFileObj.duration === 0) return;
 
         const duration = selectedFileObj.duration;
-        const startPct = (selectedFileObj.trimStart / duration) * 100;
-        const endPct = (selectedFileObj.trimEnd / duration) * 100;
+        const startPct = (selectedSegmentObj.start / duration) * 100;
+        const endPct = (selectedSegmentObj.end / duration) * 100;
+
+        // 핸들 락(Lock) 상태 반영
+        const isLocked = selectedFileObj.activeSegmentId && !isEditingSavedSegment;
+        handleLeft.classList.toggle('handle-locked', isLocked);
+        handleRight.classList.toggle('handle-locked', isLocked);
 
         handleLeft.style.left = `${startPct}%`;
         handleLeft.style.transform = 'translateX(-50%)';
@@ -953,8 +1003,21 @@ document.addEventListener('DOMContentLoaded', () => {
         if (mLeft) mLeft.style.width = `${startPct}%`;
         if (mRight) mRight.style.width = `${100 - endPct}%`;
 
-        trimStartDisplay.textContent = `시작: ${formatTime(selectedFileObj.trimStart)}`;
-        trimEndDisplay.textContent = `종료: ${formatTime(selectedFileObj.trimEnd)}`;
+        trimStartDisplay.textContent = `시작: ${formatTime(selectedSegmentObj.start)}`;
+        trimEndDisplay.textContent = `종료: ${formatTime(selectedSegmentObj.end)}`;
+
+        // 초기화 버튼 텍스트/스타일 전환
+        if (resetBtn) {
+            if (selectedFileObj.activeSegmentId && isEditingSavedSegment) {
+                resetBtn.textContent = "수정 완료";
+                resetBtn.classList.remove('bg-slate-200', 'hover:bg-slate-300');
+                resetBtn.classList.add('bg-green-500', 'hover:bg-green-600', 'text-white');
+            } else {
+                resetBtn.textContent = "초기화";
+                resetBtn.classList.add('bg-slate-200', 'hover:bg-slate-300');
+                resetBtn.classList.remove('bg-green-500', 'hover:bg-green-600', 'text-white');
+            }
+        }
     }
 
     // 재생 바 및 타임코드 전용 업데이트 (매 프레임 발생 - 고성능 필요)
@@ -980,9 +1043,35 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // 전체 UI 업데이트 (하위 호환성용)
+    // 타임라인에 이미 추가된 구간들을 시각적으로 표시 (Ghost Bars)
+    function renderGhostMarkers() {
+        const container = document.getElementById('ghost-markers-container');
+        if (!container || !selectedFileObj) return;
+
+        container.innerHTML = '';
+        const duration = selectedFileObj.duration;
+        if (!duration) return;
+
+        selectedFileObj.segments.forEach(seg => {
+            const marker = document.createElement('div');
+            const startPct = (seg.start / duration) * 100;
+            const widthPct = ((seg.end - seg.start) / duration) * 100;
+            
+            marker.className = `ghost-marker ${selectedFileObj.activeSegmentId === seg.id ? 'active' : ''}`;
+            marker.style.left = `${startPct}%`;
+            marker.style.width = `${widthPct}%`;
+            
+            container.appendChild(marker);
+        });
+    }
+
     function updateTimelineUI(forceTime = null) {
         updateTrimUI();
         updatePlayheadUI(forceTime);
+        if (selectedFileObj) {
+            renderSegments(selectedFileObj);
+            renderGhostMarkers();
+        }
     }
 
     playPauseBtn.addEventListener('click', togglePlayPause);
@@ -1021,11 +1110,11 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'KeyI':
                 e.preventDefault();
                 if (altKey) {
-                    selectedFileObj.trimStart = 0;
+                    selectedSegmentObj.start = 0;
                 } else {
-                    selectedFileObj.trimStart = mainPlayer.currentTime;
-                    if (selectedFileObj.trimStart >= selectedFileObj.trimEnd) {
-                        selectedFileObj.trimEnd = Math.min(selectedFileObj.duration, selectedFileObj.trimStart + 0.1);
+                    selectedSegmentObj.start = mainPlayer.currentTime;
+                    if (selectedSegmentObj.start >= selectedSegmentObj.end) {
+                        selectedSegmentObj.end = Math.min(selectedFileObj.duration, selectedSegmentObj.start + 0.1);
                     }
                 }
                 updateTimelineUI();
@@ -1034,11 +1123,11 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'KeyO':
                 e.preventDefault();
                 if (altKey) {
-                    selectedFileObj.trimEnd = selectedFileObj.duration;
+                    selectedSegmentObj.end = selectedFileObj.duration;
                 } else {
-                    selectedFileObj.trimEnd = mainPlayer.currentTime;
-                    if (selectedFileObj.trimEnd <= selectedFileObj.trimStart) {
-                        selectedFileObj.trimStart = Math.max(0, selectedFileObj.trimEnd - 0.1);
+                    selectedSegmentObj.end = mainPlayer.currentTime;
+                    if (selectedSegmentObj.end <= selectedSegmentObj.start) {
+                        selectedSegmentObj.start = Math.max(0, selectedSegmentObj.end - 0.1);
                     }
                 }
                 updateTimelineUI();
@@ -1047,10 +1136,15 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'KeyX':
                 if (altKey) {
                     e.preventDefault();
-                    selectedFileObj.trimStart = 0;
-                    selectedFileObj.trimEnd = selectedFileObj.duration;
+                    selectedSegmentObj.start = 0;
+                    selectedSegmentObj.end = selectedFileObj.duration;
                     updateTimelineUI();
                 }
+                break;
+
+            case 'Enter':
+                e.preventDefault();
+                addNewSegment();
                 break;
                 
             case 'ArrowLeft':
@@ -1077,13 +1171,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 
             case 'ArrowUp':
                 e.preventDefault();
-                mainPlayer.currentTime = selectedFileObj.trimStart;
-                updateTimelineUI();
+                if (selectedSegmentObj) {
+                    mainPlayer.currentTime = selectedSegmentObj.start;
+                    updateTimelineUI();
+                }
                 break;
             case 'ArrowDown':
                 e.preventDefault();
-                mainPlayer.currentTime = selectedFileObj.trimEnd;
-                updateTimelineUI();
+                if (selectedSegmentObj) {
+                    mainPlayer.currentTime = selectedSegmentObj.end;
+                    updateTimelineUI();
+                }
                 break;
         }
     });
@@ -1173,6 +1271,15 @@ document.addEventListener('DOMContentLoaded', () => {
     let seekLockTimeout = null; // 이동 중 루프 차단 타이머
 
     timelineTrack.addEventListener('mousedown', (e) => {
+        // 대기열 항목 선택 중인데 '수정 모드'가 아니면 핸들 조작 불가
+        if (selectedFileObj && selectedFileObj.activeSegmentId && !isEditingSavedSegment) {
+            if (e.target === handleLeft || e.target === handleRight) {
+                updateStatus("수정 버튼을 눌러야 구간을 변경할 수 있습니다.");
+                setTimeout(() => updateStatus(""), 2000);
+                return;
+            }
+        }
+
         if (e.target === handleLeft) {
             isDraggingLeft = true;
         } else if (e.target === handleRight) {
@@ -1204,13 +1311,23 @@ document.addEventListener('DOMContentLoaded', () => {
         if (isScrubbing) {
             updatePlayheadUI(time);
         } else if (isDraggingLeft) {
-            selectedFileObj.trimStart = Math.min(time, selectedFileObj.trimEnd - 0.1);
-            updateTrimUI();
-            updatePlayheadUI(selectedFileObj.trimStart);
+            if (selectedSegmentObj) {
+                selectedSegmentObj.start = Math.min(time, selectedSegmentObj.end - 0.1);
+                updateTrimUI();
+                updatePlayheadUI(selectedSegmentObj.start);
+                // 실시간 사이드바/고스트바 동기화
+                renderGhostMarkers();
+                if (selectedFileObj) renderSegments(selectedFileObj);
+            }
         } else if (isDraggingRight) {
-            selectedFileObj.trimEnd = Math.max(time, selectedFileObj.trimStart + 0.1);
-            updateTrimUI();
-            updatePlayheadUI(selectedFileObj.trimEnd);
+            if (selectedSegmentObj) {
+                selectedSegmentObj.end = Math.max(time, selectedSegmentObj.start + 0.1);
+                updateTrimUI();
+                updatePlayheadUI(selectedSegmentObj.end);
+                // 실시간 사이드바/고스트바 동기화
+                renderGhostMarkers();
+                if (selectedFileObj) renderSegments(selectedFileObj);
+            }
         }
 
         // 비디오 탐색은 rAF를 통해 최적화된 속도로 수행
@@ -1218,10 +1335,10 @@ document.addEventListener('DOMContentLoaded', () => {
             scrubAnimationFrame = requestAnimationFrame(() => {
                 if (isScrubbing) {
                     mainPlayer.currentTime = lastTargetTime;
-                } else if (isDraggingLeft) {
-                    mainPlayer.currentTime = selectedFileObj.trimStart;
-                } else if (isDraggingRight) {
-                    mainPlayer.currentTime = selectedFileObj.trimEnd;
+                } else if (isDraggingLeft && selectedSegmentObj) {
+                    mainPlayer.currentTime = selectedSegmentObj.start;
+                } else if (isDraggingRight && selectedSegmentObj) {
+                    mainPlayer.currentTime = selectedSegmentObj.end;
                 }
                 scrubAnimationFrame = null;
             });
@@ -1229,6 +1346,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     document.addEventListener('mouseup', () => {
+        if (isDraggingLeft || isDraggingRight) {
+            // 드래그 종료 시 최종 상태 확정 및 UI 갱신
+            if (selectedFileObj) {
+                renderSegments(selectedFileObj);
+                renderGhostMarkers();
+            }
+        }
         isScrubbing = false;
         isDraggingLeft = false;
         isDraggingRight = false;
@@ -1254,20 +1378,84 @@ document.addEventListener('DOMContentLoaded', () => {
 
     resetBtn.addEventListener('click', () => {
         if (!selectedFileObj) return;
-        selectedFileObj.trimStart = 0;
-        selectedFileObj.trimEnd = selectedFileObj.duration;
-        updateTimelineUI();
+        
+        // 현재 '수정 모드'인 경우 완료 처리
+        if (selectedFileObj.activeSegmentId && isEditingSavedSegment) {
+            isEditingSavedSegment = false;
+            updateStatus("수정이 완료되었습니다.");
+        } else {
+            // 대기열 구간이 선택된 상태에서 초기화를 누르면, 
+            // 기존 구간을 망가뜨리지 않고 '선택 해제'하여 다시 전체 영상(드래프트) 모드로 돌아갑니다.
+            selectedFileObj.activeSegmentId = null;
+            
+            // 드래프트 모드의 구간을 전체 범위로 초기화
+            const seg = getActiveSegment(selectedFileObj);
+            if (seg) {
+                seg.start = 0;
+                seg.end = selectedFileObj.duration;
+            }
+            updateStatus("타임라인이 전체 구간으로 초기화되었습니다.");
+        }
+        
+        // UI 갱신
+        selectVideo(selectedFileObj);
+        renderSegments(selectedFileObj);
+        setTimeout(() => updateStatus(""), 2000);
     });
+
+    function addNewSegment() {
+        if (!selectedFileObj || !selectedSegmentObj) return;
+        
+        // 1. 현재 편집 중인 설정(드래프트 혹은 기존 세그먼트)을 복제하여 새로운 대기열 아이템 생성
+        const currentSeg = selectedSegmentObj;
+        const newSeg = {
+            id: `seg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            start: currentSeg.start,
+            end: currentSeg.end,
+            fps: currentSeg.fps,
+            resolution: currentSeg.resolution,
+            numColors: currentSeg.numColors,
+            useDither: currentSeg.useDither,
+            loopPlayback: currentSeg.loopPlayback,
+            aspectRatioLock: currentSeg.aspectRatioLock,
+            customWidth: currentSeg.customWidth,
+            customHeight: currentSeg.customHeight,
+            status: 'idle',
+            progress: 0
+        };
+
+        // 2. 대기열에 추가
+        selectedFileObj.segments.push(newSeg);
+        
+        // 3. [개선] 추가 후에는 항상 '드래프트(마스터) 모드'로 돌아가 타임라인을 리셋합니다.
+        //    이렇게 하면 사용자가 방금 추가한 것에 얽매이지 않고 즉시 새로운 구간을 잡을 수 있습니다.
+        selectedFileObj.activeSegmentId = null; 
+        isEditingSavedSegment = false; // 수정 모드 해제
+        if (selectedFileObj.draft) {
+            selectedFileObj.draft.start = 0;
+            selectedFileObj.draft.end = selectedFileObj.duration;
+        }
+        
+        // UI 갱신
+        selectVideo(selectedFileObj);
+        renderSegments(selectedFileObj);
+        renderGhostMarkers();
+        
+        updateStatus("새로운 구간이 대기열에 추가되었습니다.");
+        setTimeout(() => updateStatus(""), 2000);
+    }
+
+    addSegmentBtn.addEventListener('click', addNewSegment);
 
     mainPlayer.addEventListener('timeupdate', () => {
         // 드래그 중이거나 스크러빙 중일 때는 로직을 실행하지 않음
-        if (!selectedFileObj || isDraggingLeft || isDraggingRight || isScrubbing) return;
+        if (!selectedFileObj || !selectedSegmentObj || isDraggingLeft || isDraggingRight || isScrubbing) return;
         
         // rVFC가 지원되지 않는 브라우저를 위한 최소한의 폴백
         if (!('requestVideoFrameCallback' in mainPlayer) && !mainPlayer.paused) {
             const currentTime = mainPlayer.currentTime;
-            const start = selectedFileObj.trimStart;
-            const end = selectedFileObj.trimEnd;
+            const start = selectedSegmentObj.start;
+            const end = selectedSegmentObj.end;
 
             if (currentTime >= end || currentTime < start - 0.3) {
                 mainPlayer.currentTime = start;
@@ -1276,14 +1464,14 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function updateUIFrame(now, metadata) {
-        if (selectedFileObj && !isScrubbing && !isDraggingLeft && !isDraggingRight) {
+        if (selectedFileObj && selectedSegmentObj && !isScrubbing && !isDraggingLeft && !isDraggingRight) {
             const currentTime = metadata && metadata.mediaTime ? metadata.mediaTime : mainPlayer.currentTime;
             updatePlayheadUI(currentTime);
 
             // 루프 로직 (rVFC 내부에서 더 정밀하게 처리)
             if (!mainPlayer.paused) {
-                const start = selectedFileObj.trimStart;
-                const end = selectedFileObj.trimEnd;
+                const start = selectedSegmentObj.start;
+                const end = selectedSegmentObj.end;
                 const fps = selectedFileObj.fps || 30;
                 const frameDuration = 1 / fps;
 
@@ -1443,6 +1631,114 @@ document.addEventListener('DOMContentLoaded', () => {
         setTimeout(() => updateStatus(""), 3000);
     });
 
+    function getActiveSegment(fileObj) {
+        if (!fileObj) return null;
+        
+        // 1. 현재 명시적으로 선택된 세그먼트가 있는 경우
+        if (fileObj.activeSegmentId) {
+            const seg = fileObj.segments.find(s => s.id === fileObj.activeSegmentId);
+            if (seg) return seg;
+        }
+
+        // 2. 선택된 세그먼트가 없거나 목록에 없는 경우, 드래프트(편집용 임시 객체)를 사용
+        if (!fileObj.draft) {
+            fileObj.draft = {
+                id: `draft_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                start: 0,
+                end: fileObj.duration || 0,
+                fps: fileObj.fps || 24,
+                resolution: "중간 (720p)",
+                numColors: 256,
+                useDither: false,
+                loopPlayback: true,
+                aspectRatioLock: true,
+                customWidth: fileObj.width,
+                customHeight: fileObj.height,
+                status: 'idle',
+                progress: 0
+            };
+        }
+        return fileObj.draft;
+    }
+
+    function renderSegments(fileObj) {
+        const item = document.querySelector(`[data-id="${fileObj.id}"]`);
+        if (!item) return;
+
+        const container = item.querySelector('.segments-container');
+        if (!container) return;
+
+        container.innerHTML = '';
+        fileObj.segments.forEach((seg, idx) => {
+            const segDiv = document.createElement('div');
+            const isActive = fileObj.activeSegmentId === seg.id;
+            segDiv.className = `segment-item group flex items-center justify-between px-2 py-1.5 rounded text-[11px] font-medium border border-transparent ${isActive ? 'active' : 'text-slate-500'}`;
+            
+            const isThisEditing = isActive && isEditingSavedSegment;
+            const timeRange = `${formatTime(seg.start)} - ${formatTime(seg.end)}`;
+            
+            segDiv.innerHTML = `
+                <div class="flex items-center gap-2 overflow-hidden flex-1">
+                    <span class="opacity-40 flex-shrink-0">#${idx + 1}</span>
+                    <span class="segment-time truncate font-bold text-slate-700">${timeRange}</span>
+                </div>
+                <div class="flex items-center gap-1 flex-shrink-0">
+                    <!-- Edit Button -->
+                    <button class="edit-seg-btn p-1.5 rounded-md hover:bg-indigo-100 transition-all ${isThisEditing ? 'text-indigo-600 bg-indigo-50 shadow-sm' : 'text-slate-500'}" title="구간 수정">
+                        <span class="material-symbols-outlined text-[18px]">${isThisEditing ? 'check_circle' : 'edit_square'}</span>
+                    </button>
+                    <!-- Delete Button -->
+                    <button class="delete-seg-btn text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all p-1.5 rounded-md" data-seg-id="${seg.id}" title="삭제">
+                        <span class="material-symbols-outlined text-[18px]">close</span>
+                    </button>
+                </div>
+            `;
+            
+            // 항목 자체 클릭 (단순 선택 및 이동)
+            segDiv.addEventListener('click', (e) => {
+                e.stopPropagation();
+                fileObj.activeSegmentId = seg.id;
+                isEditingSavedSegment = false; // 단순 클릭은 보기 모드
+                selectVideo(fileObj); 
+                renderSegments(fileObj);
+            });
+
+            // 수정 버튼 클릭
+            const editBtn = segDiv.querySelector('.edit-seg-btn');
+            editBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (fileObj.activeSegmentId === seg.id && isEditingSavedSegment) {
+                    // 이미 수정 중이었다면 완료 처리
+                    isEditingSavedSegment = false;
+                } else {
+                    fileObj.activeSegmentId = seg.id;
+                    isEditingSavedSegment = true;
+                }
+                selectVideo(fileObj);
+                renderSegments(fileObj);
+            });
+
+            const delBtn = segDiv.querySelector('.delete-seg-btn');
+            delBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const sIdx = fileObj.segments.findIndex(s => s.id === seg.id);
+                if (sIdx !== -1) {
+                    fileObj.segments.splice(sIdx, 1);
+                    
+                    // 삭제한 것이 현재 활성 세그먼트였다면 드래프트 모드로 복귀
+                    if (fileObj.activeSegmentId === seg.id) {
+                        fileObj.activeSegmentId = null;
+                        selectVideo(fileObj);
+                    } else {
+                        renderSegments(fileObj);
+                    }
+                }
+            });
+
+            container.appendChild(segDiv);
+        });
+    }
+
     function addLibraryItem(fileObj) {
         const sizeMb = (fileObj.size / (1024 * 1024)).toFixed(1);
         const format = fileObj.name.split('.').pop().toUpperCase();
@@ -1490,6 +1786,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="conversion-progress-container w-full h-1 bg-slate-100 rounded-full overflow-hidden hidden">
                     <div class="conversion-progress-bar h-full bg-green-500 transition-all duration-300" style="width: 0%"></div>
                 </div>
+
+                <!-- Segments List (Child Tasks) -->
+                <div class="segments-container flex flex-col gap-1 mt-2 border-t border-indigo-50 pt-2 empty:hidden"></div>
             </div>
         `;
 
@@ -1554,6 +1853,7 @@ document.addEventListener('DOMContentLoaded', () => {
             selectVideo(fileObj);
         });
         libraryList.appendChild(itemDiv);
+        renderSegments(fileObj);
         updateLibraryEmptyState();
         updateBatchButtonState();
     }
@@ -1629,7 +1929,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // UI 값 캡처
+        // UI 값 캡처 (오버라이드용)
         const uiFps = parseInt(fpsSlider.value);
         const resActive = document.querySelector('#res-dropdown .dropdown-item.active');
         let uiResolution = resActive ? resActive.dataset.value : "중간 (720p)";
@@ -1644,48 +1944,61 @@ document.addEventListener('DOMContentLoaded', () => {
         convertBtn.disabled = true;
         convertBtn.style.opacity = '0.5';
         convertSplitBtn.disabled = true;
-        // 이번 배치 작업 정보 초기화
-        totalBatchCount = selectedFiles.length;
+
+        // 이번 배치 작업 정보 초기화 (총 세그먼트 수 기준)
+        totalBatchCount = 0;
+        selectedFiles.forEach(f => totalBatchCount += f.segments.length);
         completedBatchCount = 0;
 
         for (let i = 0; i < selectedFiles.length; i++) {
             const fileObj = selectedFiles[i];
-            let outName = "output_" + fileObj.name.replace(/\.[^/.]+$/, "") + ".gif";
-            const start = fileObj.trimStart;
-            const end = fileObj.trimEnd || 99999;
             
-            let fps, resolution, numColors, useDither, loopPlayback;
-
-            if (useOverride) {
-                fps = uiFps; resolution = uiResolution; numColors = uiNumColors; useDither = uiUseDither; loopPlayback = uiLoopPlayback;
-            } else {
-                fps = fileObj.fps || 24;
-                resolution = fileObj.resolution || "중간 (720p)";
-                if (resolution === "직접 설정") {
-                    resolution = `${fileObj.customWidth || fileObj.width}:${fileObj.customHeight || fileObj.height}`;
+            for (let j = 0; j < fileObj.segments.length; j++) {
+                const seg = fileObj.segments[j];
+                let outName = "output_" + fileObj.name.replace(/\.[^/.]+$/, "");
+                if (fileObj.segments.length > 1) {
+                    outName += `_Clip${j + 1}`;
                 }
-                numColors = fileObj.numColors || 256;
-                useDither = fileObj.useDither || false;
-                loopPlayback = fileObj.loopPlayback !== undefined ? fileObj.loopPlayback : true;
-            }
+                outName += ".gif";
 
-            // 모든 선택된 파일에 대해 '대기 중' UI 즉시 표시
-            const item = document.querySelector(`[data-id="${fileObj.id}"]`);
-            if (item) {
-                const container = item.querySelector('.conversion-progress-container');
-                const statusText = item.querySelector('.proxy-status-text');
-                const metadata = item.querySelector('.file-metadata');
-                if (container) container.classList.remove('hidden');
-                if (statusText) statusText.textContent = "대기 중...";
-                if (metadata) metadata.classList.add('hidden');
-                const bar = item.querySelector('.conversion-progress-bar');
-                if (bar) bar.style.width = '0%';
-            }
+                const start = seg.start;
+                const end = seg.end || 99999;
+                
+                let fps, resolution, numColors, useDither, loopPlayback;
 
-            conversionQueue.push({
-                fileObj,
-                params: { outName, start, end, fps, resolution, numColors, useDither, loopPlayback }
-            });
+                if (useOverride) {
+                    fps = uiFps; resolution = uiResolution; numColors = uiNumColors; useDither = uiUseDither; loopPlayback = uiLoopPlayback;
+                } else {
+                    fps = seg.fps || 24;
+                    resolution = seg.resolution || "중간 (720p)";
+                    if (resolution === "직접 설정") {
+                        resolution = `${seg.customWidth || fileObj.width}:${seg.customHeight || fileObj.height}`;
+                    }
+                    numColors = seg.numColors || 256;
+                    useDither = seg.useDither || false;
+                    loopPlayback = seg.loopPlayback !== undefined ? seg.loopPlayback : true;
+                }
+
+                // 세그먼트 상태 초기화
+                seg.status = 'waiting';
+                seg.progress = 0;
+                renderSegments(fileObj);
+
+                // 부모 아이템 UI도 업데이트 (첫 번째 작업 시작 시)
+                const item = document.querySelector(`[data-id="${fileObj.id}"]`);
+                if (item) {
+                    const statusText = item.querySelector('.proxy-status-text');
+                    const metadata = item.querySelector('.file-metadata');
+                    if (statusText) statusText.textContent = "대기 중...";
+                    if (metadata) metadata.classList.add('hidden');
+                }
+
+                conversionQueue.push({
+                    fileObj,
+                    segId: seg.id,
+                    params: { outName, start, end, fps, resolution, numColors, useDither, loopPlayback }
+                });
+            }
         }
         
         processConversionQueue();

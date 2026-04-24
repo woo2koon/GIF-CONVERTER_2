@@ -150,6 +150,54 @@
             font-weight: 700;
         }
 
+        /* Segment List Styles */
+        .segment-item {
+            position: relative;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+        .segment-item:hover {
+            background-color: #f8fafc;
+        }
+        .segment-item.active {
+            background-color: #f0f3ff;
+            border-left: 3px solid #4f46e5;
+        }
+        .segment-item.active .segment-time {
+            color: #4f46e5;
+        }
+        .edit-seg-btn.active {
+            color: #4f46e5;
+            background-color: #f0f3ff;
+        }
+
+        /* Locked Handles Style */
+        .handle-locked {
+            opacity: 0.3 !important;
+            cursor: not-allowed !important;
+            background-color: #94a3b8 !important; /* Slate color when locked */
+        }
+
+        /* Ghost Marker Styles */
+        .ghost-marker {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            height: 100%;
+            background-color: #facc15; /* Brighter Yellow */
+            opacity: 0.5;
+            border-left: 1.5px solid #eab308;
+            border-right: 1.5px solid #eab308;
+            transition: all 0.2s ease;
+            z-index: 15; /* Masks(10)보다 위에 배치하여 선명하게 표시 */
+        }
+        .ghost-marker.active {
+            opacity: 0.8;
+            background-color: #facc15;
+            box-shadow: 0 0 12px rgba(234, 179, 8, 0.5), inset 0 0 10px rgba(255, 255, 255, 0.5);
+            z-index: 16;
+        }
+
         /* Drag and Drop Overlay */
         #drop-overlay {
             position: fixed;
@@ -316,6 +364,10 @@
                                 class="text-xs bg-slate-200 hover:bg-slate-300 px-2 py-1 rounded font-bold transition-colors">초기화</button>
                         </div>
                         <div class="flex items-center gap-2">
+                            <button id="add-segment-btn" class="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-sm transition-all mr-2">
+                                <span class="material-symbols-outlined text-[16px]">add_circle</span>
+                                대기열 추가
+                            </button>
                             <div class="flex gap-3 text-xs font-bold text-indigo-600">
                                 <span class="bg-indigo-600/10 px-2 py-1 rounded" id="trim-start-display">시작: 00:00:00</span>
                                 <span class="bg-indigo-600/10 px-2 py-1 rounded" id="trim-end-display">종료: 00:00:00</span>
@@ -326,6 +378,8 @@
                     <!-- Premium Timeline Scrubber -->
                     <div id="timeline-container" class="w-full mt-2">
                         <div class="relative h-5 bg-slate-200 rounded-md select-none cursor-pointer overflow-hidden" id="timeline-track">
+                            <!-- Ghost Markers (already added segments) -->
+                            <div id="ghost-markers-container" class="absolute inset-0 z-[15] pointer-events-none"></div>
                             
                             <!-- Left Mask: area BEFORE IN point (dimmed) -->
                             <div id="mask-left" class="absolute left-0 h-full bg-black/25 z-10 pointer-events-none"></div>
@@ -337,11 +391,11 @@
                             <div id="trim-range" class="absolute h-full z-10 pointer-events-none"></div>
                             
                             <!-- Handles -->
-                            <div id="handle-left" class="absolute h-full w-2.5 bg-indigo-600 cursor-ew-resize z-20 flex items-center justify-center -translate-x-1/2">
-                                <div class="w-0.5 h-3 bg-white/80 rounded-full"></div>
+                            <div id="handle-left" class="absolute h-full w-1.5 bg-indigo-600 cursor-ew-resize z-20 flex items-center justify-center -translate-x-1/2 shadow-[0_0_10px_rgba(0,0,0,0.1)]">
+                                <div class="w-[1px] h-3 bg-white/50 rounded-full"></div>
                             </div>
-                            <div id="handle-right" class="absolute h-full w-2.5 bg-indigo-600 cursor-ew-resize z-20 flex items-center justify-center -translate-x-1/2">
-                                <div class="w-0.5 h-3 bg-white/80 rounded-full"></div>
+                            <div id="handle-right" class="absolute h-full w-1.5 bg-indigo-600 cursor-ew-resize z-20 flex items-center justify-center -translate-x-1/2 shadow-[0_0_10px_rgba(0,0,0,0.1)]">
+                                <div class="w-[1px] h-3 bg-white/50 rounded-full"></div>
                             </div>
                             
                             <!-- Playhead -->
