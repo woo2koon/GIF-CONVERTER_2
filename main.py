@@ -1,18 +1,43 @@
 import eel
 import os
 import base64
-import tkinter as tk
-from tkinter import filedialog
 import bottle
 import tempfile
 import subprocess
 import imageio_ffmpeg
 import re
+import json
+
+# pywebview 전역 참조 (맥OS에서 파일 다이얼로그 호출용)
+try:
+    import webview
+except ImportError:
+    webview = None
+_webview_window = None  # pywebview 창 객체 전역 보관
 
 # 프록시 저장용 폴더 설정 및 생성 (모듈 상단으로 이동)
 PROXY_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".proxies")
 if not os.path.exists(PROXY_DIR):
     os.makedirs(PROXY_DIR, exist_ok=True)
+
+# 설정 관리
+CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+DEFAULT_SAVE_DIR = os.path.join(os.path.expanduser("~"), "Downloads")
+
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            return {"save_dir": DEFAULT_SAVE_DIR}
+    return {"save_dir": DEFAULT_SAVE_DIR}
+
+def save_config(config):
+    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+        json.dump(config, f, indent=4, ensure_ascii=False)
+
+app_config = load_config()
 
 # Initialize Eel, pointing to the 'web' directory
 eel.init('web')
@@ -21,6 +46,29 @@ eel.init('web')
 def get_os_info():
     import platform
     return platform.system()
+
+@eel.expose
+def get_save_directory():
+    return app_config.get("save_dir", DEFAULT_SAVE_DIR)
+
+@eel.expose
+def select_save_directory():
+    try:
+        # macOS 전용: AppleScript를 사용하여 네이티브 폴더 선택창 호출
+        # Tkinter보다 맥 환경에서 훨씬 안정적이며 충돌이 없습니다.
+        script = 'POSIX path of (choose folder with prompt "저장 폴더를 선택하세요")'
+        process = subprocess.Popen(['osascript', '-e', script], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        stdout, stderr = process.communicate()
+        
+        if process.returncode == 0:
+            selected_dir = stdout.strip()
+            if selected_dir:
+                app_config["save_dir"] = selected_dir
+                save_config(app_config)
+                return selected_dir
+    except Exception as e:
+        print(f"Folder selection error: {e}")
+    return None
 
 @eel.btl.route('/local_file/<filepath:path>')
 def server_local_file(filepath):
@@ -72,42 +120,71 @@ def server_local_file(filepath):
 
 @eel.expose
 def pick_videos():
-    """Opens a native file picker and returns absolute paths. Uses AppleScript on Mac to avoid hangs."""
+    """Opens a native file picker and returns absolute paths."""
     import platform
-    import subprocess
     
-    if platform.system() == 'Darwin': # macOS
+    print(f"\n[Backend] pick_videos 호출됨 (OS: {platform.system()})")
+    
+    if platform.system() == 'Darwin':
+        # 1. AppleScript 시도 (사용자가 선호하는 친숙한 느낌)
+        import subprocess
         script = '''
-        set theFiles to choose file with prompt "비디오 파일 선택" of type {"public.movie", "org.webmproject.webm", "webm", "mp4", "mov", "avi", "mkv", "wmv"} with multiple selections allowed
         set out to ""
-        repeat with aFile in theFiles
-            set out to out & POSIX path of aFile & "\n"
-        end repeat
-        return out
+        tell current application
+            activate
+            set theFiles to choose file with prompt "비디오 파일 선택" of type {"public.movie", "org.webmproject.webm", "mp4", "mov", "avi", "mkv", "wmv"} with multiple selections allowed
+            repeat with aFile in theFiles
+                set out to out & POSIX path of aFile & "\n"
+            repeat
+        end tell
+        out
         '''
         try:
-            output = subprocess.check_output(['osascript', '-e', script]).decode('utf-8').strip()
-            if not output:
-                return []
-            return output.split('\n')
-        except Exception:
-            return []
+            print("[Backend] AppleScript 호출 시도...")
+            process = subprocess.Popen(['osascript', '-e', script], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            stdout, _ = process.communicate()
+            if stdout.strip():
+                paths = stdout.strip().split('\n')
+                print(f"[Backend] AppleScript 파일 선택 성공: {len(paths)}개")
+                return paths
+        except Exception as e:
+            print(f"[Backend] AppleScript 실패, pywebview로 전환: {e}")
+
+        # 2. Fallback: pywebview (AppleScript 실패 시)
+        global _webview_window
+        if _webview_window is not None:
+            try:
+                print("[Backend] pywebview create_file_dialog 호출 (Fallback)...")
+                file_types = ('Video Files (*.mp4;*.mov;*.avi;*.mkv;*.wmv;*.webm)', 'All files (*.*)')
+                result = _webview_window.create_file_dialog(
+                    webview.FileDialog.OPEN,
+                    allow_multiple=True,
+                    file_types=file_types
+                )
+                if result:
+                    return list(result)
+            except: pass
+        return []
     else:
-        # Windows/Linux: use tkinter
+        # Windows/Linux: tkinter
+        print("[Backend] Tkinter 호출 시도...")
         import tkinter as tk
         from tkinter import filedialog
-        
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes("-topmost", True)
-        
-        files = filedialog.askopenfilenames(
-            title="비디오 파일 선택",
-            filetypes=[("Video files", "*.mp4 *.mov *.avi *.mkv *.wmv *.webm")]
-        )
-        
-        root.destroy()
-        return list(files)
+        try:
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes("-topmost", True)
+            files = filedialog.askopenfilenames(
+                title="비디오 파일 선택",
+                filetypes=[("Video files", "*.mp4 *.mov *.avi *.mkv *.wmv *.webm")]
+            )
+            root.destroy()
+            print(f"[Backend] 파일 선택 성공: {len(files)}개")
+            return list(files)
+        except Exception as e:
+            print(f"[Backend] Tkinter 예외 발생: {str(e)}")
+            return []
+
 
 @eel.expose
 def get_file_info(path):
@@ -247,14 +324,17 @@ def generate_proxy_worker(path, file_id, proxy_path, total_duration, ffmpeg_exe)
 
 @eel.expose
 def open_downloads_folder():
-    """기본 다운로드 폴더를 엽니다."""
+    """현재 설정된 저장 폴더를 엽니다."""
     import platform
-    downloads_path = os.path.join(os.path.expanduser("~"), "Downloads")
+    save_dir = app_config.get("save_dir", DEFAULT_SAVE_DIR)
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir, exist_ok=True)
+        
     try:
         if platform.system() == 'Darwin':
-            subprocess.run(['open', downloads_path])
+            subprocess.run(['open', save_dir])
         elif platform.system() == 'Windows':
-            os.startfile(downloads_path)
+            os.startfile(save_dir)
         return {"status": "success"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -285,19 +365,21 @@ def clear_proxy_cache():
         return {"status": "error", "message": str(e)}
 
 @eel.expose
-def request_conversion(input_path, file_id, output_name, start_time, end_time, fps, resolution, num_colors=256, use_dither=False, loop_playback=True):
+def request_conversion(input_path, file_id, output_name, start_time, end_time, fps, resolution, num_colors=256, use_dither=False, loop_playback=True, crop_params=None):
     """
     GIF 변환 요청을 수락하고 백그라운드 스레드에서 작업을 시작합니다.
     """
     try:
-        # 다운로드 폴더 및 경로 설정
-        downloads_path = os.path.join(os.path.expanduser("~"), "Downloads")
+        save_dir = app_config.get("save_dir", DEFAULT_SAVE_DIR)
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir, exist_ok=True)
+        
         base_name, extension = os.path.splitext(output_name)
-        output_path = os.path.join(downloads_path, output_name)
+        output_path = os.path.join(save_dir, output_name)
         
         counter = 1
         while os.path.exists(output_path):
-            output_path = os.path.join(downloads_path, f"{base_name} ({counter}){extension}")
+            output_path = os.path.join(save_dir, f"{base_name} ({counter}){extension}")
             counter += 1
 
         import threading
@@ -306,7 +388,7 @@ def request_conversion(input_path, file_id, output_name, start_time, end_time, f
         # 워커 스레드 시작
         threading.Thread(
             target=conversion_worker, 
-            args=(file_id, input_path, output_path, start_time, end_time, fps, resolution, num_colors, use_dither, loop_playback, ffmpeg_exe, downloads_path),
+            args=(file_id, input_path, output_path, start_time, end_time, fps, resolution, num_colors, use_dither, loop_playback, ffmpeg_exe, crop_params),
             daemon=True
         ).start()
         
@@ -314,7 +396,7 @@ def request_conversion(input_path, file_id, output_name, start_time, end_time, f
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-def conversion_worker(file_id, input_path, output_path, start_time, end_time, fps, resolution, num_colors, use_dither, loop_playback, ffmpeg_exe, downloads_path):
+def conversion_worker(file_id, input_path, output_path, start_time, end_time, fps, resolution, num_colors, use_dither, loop_playback, ffmpeg_exe, crop_params):
     """
     실제로 FFmpeg 2-pass 인코딩을 수행하며 진행률을 보고합니다.
     """
@@ -329,6 +411,12 @@ def conversion_worker(file_id, input_path, output_path, start_time, end_time, fp
         duration = float(end_time) - float(start_time)
         
         # 해상도 필터 설정
+        crop_filter = ""
+        if crop_params and isinstance(crop_params, dict):
+            cw, ch = crop_params.get('w', 100) / 100.0, crop_params.get('h', 100) / 100.0
+            cx, cy = crop_params.get('x', 0) / 100.0, crop_params.get('y', 0) / 100.0
+            crop_filter = f"crop=iw*{cw:.4f}:ih*{ch:.4f}:iw*{cx:.4f}:ih*{cy:.4f},"
+
         scale_filter = ""
         if ":" in str(resolution):
             scale_filter = f"scale={resolution}:flags=lanczos,"
@@ -337,12 +425,14 @@ def conversion_worker(file_id, input_path, output_path, start_time, end_time, fp
         elif "480" in str(resolution):
             scale_filter = "scale=-1:min(ih\\,480):flags=lanczos,"
             
+        base_filters = crop_filter + scale_filter
+            
         dither_method = "sierra2_4a" if use_dither else "none"
         
         # --- Pass 1: Palette Generation ---
         eel.update_conversion_status(file_id, "팔레트 생성 중...", 5)
         eel.sleep(0.01) # 프론트엔드로 상태 메시지를 즉시 전송하도록 이벤트 루프에 제어권 양보
-        filters_pass1 = f"{scale_filter}fps={int(fps)},palettegen=max_colors={num_colors}:stats_mode=diff"
+        filters_pass1 = f"{base_filters}fps={int(fps)},palettegen=max_colors={num_colors}:stats_mode=diff"
         cmd1 = [
             ffmpeg_exe, "-y", "-ss", str(start_time), "-t", str(duration),
             "-i", input_path, "-vf", filters_pass1, palette_path
@@ -355,7 +445,7 @@ def conversion_worker(file_id, input_path, output_path, start_time, end_time, fp
         eel.update_conversion_status(file_id, "인코딩 중...", 15)
         eel.sleep(0.01)
         loop_val = "0" if loop_playback else "-1"
-        filters_pass2 = f"{scale_filter}fps={int(fps)}[x];[x][1:v]paletteuse=dither={dither_method}"
+        filters_pass2 = f"{base_filters}fps={int(fps)}[x];[x][1:v]paletteuse=dither={dither_method}"
         cmd2 = [
             ffmpeg_exe, "-y", "-ss", str(start_time), "-t", str(duration),
             "-i", input_path, "-i", palette_path,
@@ -409,6 +499,11 @@ def convert_to_gif(input_path, output_name, start_time, end_time, fps, resolutio
     return {"status": "error", "message": "Async required. Use request_conversion."}
 
 
+@eel.expose
+def debug_log(message):
+    """자바스크립트의 로그를 파이썬 터미널에 출력합니다."""
+    print(f"[JS-LOG] {message}")
+
 if __name__ == '__main__':
     import sys
     
@@ -448,6 +543,7 @@ if __name__ == '__main__':
             
             time.sleep(1) # 서버 시작 대기
             window = webview.create_window('GIF Converter', 'http://127.0.0.1:8889', width=1280, height=850)
+            _webview_window = window  # 전역에 저장
             
             # 드래그 앤 드롭 파일 경로 수신 핸들러
             def on_drop(e):
@@ -465,7 +561,7 @@ if __name__ == '__main__':
                 win.dom.document.events.dragover += DOMEventHandler(None, prevent_default=True)
                 win.dom.document.events.drop += DOMEventHandler(on_drop, prevent_default=True)
             
-            webview.start(init_logic, window)
+            webview.start(init_logic, window, debug=False)
         else:
             # 기타 (리눅스 등)
             eel.start('index.html', size=(1280, 800), port=8889, mode='default')

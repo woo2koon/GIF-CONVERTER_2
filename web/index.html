@@ -248,6 +248,9 @@
                         <button id="add-video-btn-compact" class="hidden flex items-center justify-center w-6 h-6 bg-indigo-100 text-indigo-600 rounded-full hover:bg-indigo-600 hover:text-white transition-all active:scale-90" title="파일 추가">
                             <span class="material-symbols-outlined text-base">add</span>
                         </button>
+                        <button id="open-settings-btn" class="flex items-center justify-center w-6 h-6 bg-slate-200 text-slate-500 rounded-full hover:bg-indigo-600 hover:text-white transition-all active:scale-90" title="설정">
+                            <span class="material-symbols-outlined text-base">settings</span>
+                        </button>
                     </div>
                     <div class="flex items-center gap-2">
                         <input
@@ -304,8 +307,28 @@
                         webkit-playsinline disablePictureInPicture></video>
                     <div id="placeholder-msg" class="text-on-surface-variant font-medium text-white">비디오를 선택하거나 업로드하세요
                     </div>
-                    <div id="proxy-badge" class="absolute top-4 left-4 bg-[#2d2d2d]/80 text-white text-[10px] font-bold px-2.5 py-1 rounded-md tracking-[0.15em] hidden select-none shadow-lg shadow-black/20">
+                    <div id="proxy-badge" class="absolute top-4 left-4 bg-[#2d2d2d]/80 text-white text-[10px] font-bold px-2.5 py-1 rounded-md tracking-[0.15em] hidden select-none shadow-lg shadow-black/20 z-[25]">
                         PROXY PREVIEW
+                    </div>
+
+                    <!-- Crop Overlay -->
+                    <div id="crop-overlay" class="absolute inset-0 z-10 hidden" style="cursor: crosshair;">
+                        <div id="crop-box" class="absolute border-2 border-rose-500 flex items-center justify-center hidden" style="box-shadow: 0 0 0 9999px rgba(0,0,0,0.6);">
+                            <!-- Edge Handles (Full Length) -->
+                            <div class="absolute -top-1 left-0 right-0 h-2 cursor-ns-resize z-20 hover:bg-rose-500/20 transition-colors" data-handle="t"></div>
+                            <div class="absolute -bottom-1 left-0 right-0 h-2 cursor-ns-resize z-20 hover:bg-rose-500/20 transition-colors" data-handle="b"></div>
+                            <div class="absolute -left-1 top-0 bottom-0 w-2 cursor-ew-resize z-20 hover:bg-rose-500/20 transition-colors" data-handle="l"></div>
+                            <div class="absolute -right-1 top-0 bottom-0 w-2 cursor-ew-resize z-20 hover:bg-rose-500/20 transition-colors" data-handle="r"></div>
+                            
+                            <!-- Corner Handles (Higher Priority) -->
+                            <div class="absolute -top-1.5 -left-1.5 w-3 h-3 bg-white border border-rose-500 rounded-sm cursor-nwse-resize z-30 shadow-sm" data-handle="tl"></div>
+                            <div class="absolute -top-1.5 -right-1.5 w-3 h-3 bg-white border border-rose-500 rounded-sm cursor-nesw-resize z-30 shadow-sm" data-handle="tr"></div>
+                            <div class="absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-white border border-rose-500 rounded-sm cursor-nesw-resize z-30 shadow-sm" data-handle="bl"></div>
+                            <div class="absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-white border border-rose-500 rounded-sm cursor-nwse-resize z-30 shadow-sm" data-handle="br"></div>
+                            
+                            <!-- Center move area -->
+                            <div class="absolute inset-0 cursor-move" data-handle="move"></div>
+                        </div>
                     </div>
 
                     <!-- Proxy Processing Overlay -->
@@ -377,30 +400,38 @@
 
                     <!-- Premium Timeline Scrubber -->
                     <div id="timeline-container" class="w-full mt-2">
-                        <div class="relative h-5 bg-slate-200 rounded-md select-none cursor-pointer overflow-hidden" id="timeline-track">
-                            <!-- Ghost Markers (already added segments) -->
-                            <div id="ghost-markers-container" class="absolute inset-0 z-[15] pointer-events-none"></div>
-                            
-                            <!-- Left Mask: area BEFORE IN point (dimmed) -->
-                            <div id="mask-left" class="absolute left-0 h-full bg-black/25 z-10 pointer-events-none"></div>
-                            
-                            <!-- Right Mask: area AFTER OUT point (dimmed) -->
-                            <div id="mask-right" class="absolute right-0 h-full bg-black/25 z-10 pointer-events-none"></div>
-                            
-                            <!-- Selected Range (no fill needed, masks handle it) -->
-                            <div id="trim-range" class="absolute h-full z-10 pointer-events-none"></div>
-                            
-                            <!-- Handles -->
-                            <div id="handle-left" class="absolute h-full w-1.5 bg-indigo-600 cursor-ew-resize z-20 flex items-center justify-center -translate-x-1/2 shadow-[0_0_10px_rgba(0,0,0,0.1)]">
-                                <div class="w-[1px] h-3 bg-white/50 rounded-full"></div>
-                            </div>
-                            <div id="handle-right" class="absolute h-full w-1.5 bg-indigo-600 cursor-ew-resize z-20 flex items-center justify-center -translate-x-1/2 shadow-[0_0_10px_rgba(0,0,0,0.1)]">
-                                <div class="w-[1px] h-3 bg-white/50 rounded-full"></div>
+                        <div class="relative h-5 select-none cursor-default" id="timeline-track">
+                            <!-- Inner Track (Clipped background and masks) -->
+                            <div class="absolute inset-0 bg-slate-200 rounded-md overflow-hidden pointer-events-none">
+                                <!-- Ghost Markers (already added segments) -->
+                                <div id="ghost-markers-container" class="absolute inset-0 z-[15] pointer-events-none"></div>
+                                
+                                <!-- Left Mask: area BEFORE IN point (dimmed) -->
+                                <div id="mask-left" class="absolute left-0 h-full bg-black/25 z-10 pointer-events-none"></div>
+                                
+                                <!-- Right Mask: area AFTER OUT point (dimmed) -->
+                                <div id="mask-right" class="absolute right-0 h-full bg-black/25 z-10 pointer-events-none"></div>
+                                
+                                <!-- Selected Range (no fill needed, masks handle it) -->
+                                <div id="trim-range" class="absolute h-full z-10 pointer-events-none"></div>
                             </div>
                             
-                            <!-- Playhead -->
-                            <div id="playhead" class="absolute h-full w-0.5 bg-rose-500 z-30 pointer-events-none" style="left: 0; will-change: transform;">
-                                <div class="absolute -top-0.5 -left-[4px] w-2.5 h-2.5 bg-rose-500 rounded-sm rotate-45"></div>
+                            <!-- Handles (Enhanced Hit Area - Slimmer Look) -->
+                            <div id="handle-left" class="absolute h-full w-6 cursor-ew-resize z-30 flex items-center justify-center -translate-x-1/2 group">
+                                <div class="w-0.5 h-full bg-indigo-600 shadow-[0_0_8px_rgba(79,70,229,0.3)] group-hover:bg-indigo-400 transition-colors"></div>
+                                <div class="absolute w-[1px] h-3 bg-white/30 rounded-full"></div>
+                            </div>
+                            <div id="handle-right" class="absolute h-full w-6 cursor-ew-resize z-30 flex items-center justify-center -translate-x-1/2 group">
+                                <div class="w-0.5 h-full bg-indigo-600 shadow-[0_0_8px_rgba(79,70,229,0.3)] group-hover:bg-indigo-400 transition-colors"></div>
+                                <div class="absolute w-[1px] h-3 bg-white/30 rounded-full"></div>
+                            </div>
+                            
+                            <!-- Playhead (Full Handle - Easy Grab) -->
+                            <div id="playhead-handle" class="absolute h-full w-4 z-20 pointer-events-auto -translate-x-1/2" style="left: 0; will-change: transform;">
+                                <!-- Visible Line -->
+                                <div class="absolute inset-y-0 left-1/2 -translate-x-1/2 w-0.5 bg-rose-500"></div>
+                                <!-- Professional Pentagon Head (Compact) -->
+                                <div class="absolute -top-3 left-1/2 -translate-x-1/2 w-2.5 h-3 bg-rose-500 shadow-sm" style="clip-path: polygon(0% 0%, 100% 0%, 100% 65%, 50% 100%, 0% 65%);"></div>
                             </div>
                         </div>
                     </div>
@@ -415,7 +446,8 @@
                 <h2 class="font-sans text-lg font-bold text-on-surface mb-2">출력 설정</h2>
 
                 <!-- Batch Sync Toggle -->
-                <div id="batch-sync-container" class="hidden opacity-0 max-h-0 overflow-hidden transition-all duration-500 ease-in-out mb-1">
+                <!-- Batch Sync Toggle -->
+                <div id="batch-sync-container" class="hidden my-4">
                     <div class="flex items-center justify-between bg-indigo-100/70 p-3 px-4 rounded-xl border border-indigo-200">
                         <div class="flex flex-col">
                             <span class="text-[13px] font-bold text-indigo-800 uppercase tracking-tight font-sans">모든 구간에 적용</span>
@@ -444,21 +476,80 @@
                         </ul>
                     </div>
                     <!-- Custom Resolution Inputs -->
-                    <div id="custom-res-container" class="hidden grid grid-cols-2 gap-3 p-4 bg-slate-100/50 rounded-xl border border-slate-200 mt-2">
-                        <div class="flex flex-col gap-1.5">
-                            <label class="text-[10px] font-bold text-slate-500 uppercase px-1">가로 (Width)</label>
-                            <input type="number" id="custom-width" class="bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20 outline-none" placeholder="가로">
-                        </div>
-                        <div class="flex flex-col gap-1.5">
-                            <label class="text-[10px] font-bold text-slate-500 uppercase px-1">세로 (Height)</label>
-                            <input type="number" id="custom-height" class="bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/20 outline-none" placeholder="세로">
-                        </div>
-                        <div class="col-span-2 flex items-center gap-2 mt-1 px-1">
-                            <input type="checkbox" id="aspect-ratio-lock" checked class="w-4 h-4 accent-primary rounded cursor-pointer">
-                            <label for="aspect-ratio-lock" class="text-xs font-bold text-slate-600 cursor-pointer">비율 유지</label>
+                    <div id="custom-res-container" class="hidden mt-2 p-4 bg-slate-100/50 rounded-xl border border-slate-200">
+                        <div class="flex items-center gap-3">
+                            <!-- Width Section -->
+                            <div class="flex-1 space-y-1">
+                                <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest pl-1">가로 (W)</label>
+                                <input type="number" id="custom-width" class="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-shadow">
+                            </div>
+                            
+                            <!-- Link Icon -->
+                            <div class="pt-6">
+                                <button id="aspect-ratio-lock" data-active="true" 
+                                    class="p-1.5 rounded-full bg-transparent border-none text-slate-300 hover:text-slate-500 transition-colors flex items-center justify-center shrink-0 outline-none transform translate-y-0.5">
+                                    <span class="material-symbols-outlined text-lg">link</span>
+                                </button>
+                            </div>
+
+                            <!-- Height Section -->
+                            <div class="flex-1 space-y-1">
+                                <label class="text-[10px] font-bold text-slate-500 uppercase tracking-widest pl-1">세로 (H)</label>
+                                <input type="number" id="custom-height" class="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-shadow">
+                            </div>
                         </div>
                     </div>
                 </div>
+
+                <!-- Crop Settings -->
+                <div class="space-y-2 pt-2 border-t border-slate-200/50">
+                    <div class="flex items-center justify-between">
+                        <label class="block text-xs font-bold text-on-surface-variant uppercase tracking-widest font-sans flex items-center gap-1">
+                            <span class="material-symbols-outlined text-[16px]">crop</span>
+                            화면 자르기 (Crop)
+                        </label>
+                        <div id="crop-toggle" data-active="false"
+                            class="w-10 h-5 bg-slate-300 rounded-full relative p-0.5 cursor-pointer transition-colors">
+                            <div class="w-4 h-4 bg-white rounded-full transition-transform pointer-events-none shadow-sm"></div>
+                        </div>
+                    </div>
+                    <div id="crop-controls-container" class="hidden flex-col gap-3 p-3 bg-rose-50/50 rounded-xl border border-rose-100/50">
+                        <div class="flex justify-between items-center text-xs">
+                            <span class="text-rose-800 font-bold">크롭 활성화됨</span>
+                            <button id="crop-reset-btn" class="text-rose-600 hover:text-rose-800 font-bold px-2 py-1 rounded bg-rose-100/50 hover:bg-rose-200/50 transition-colors">
+                                초기화
+                            </button>
+                        </div>
+                        
+                        <!-- Aspect Ratio Selection (Custom Dropdown) -->
+                        <div class="space-y-1.5">
+                            <label class="text-[10px] text-rose-800 font-bold opacity-60">자르기 비율 (Aspect Ratio)</label>
+                            <div class="flex items-center gap-2">
+                                <div class="relative custom-dropdown flex-1" id="crop-ratio-dropdown">
+                                    <button class="dropdown-trigger w-full h-[38px] bg-white border border-rose-200 rounded-xl px-3 text-xs font-medium text-rose-900 flex items-center justify-between shadow-sm hover:bg-rose-50 transition-colors">
+                                        <span id="crop-ratio-selected">자유형 (Free)</span>
+                                        <span class="material-symbols-outlined text-rose-400 text-[18px]">aspect_ratio</span>
+                                    </button>
+                                    <ul class="dropdown-menu absolute z-50 w-full mt-1 bg-white rounded-xl shadow-2xl border border-rose-100 overflow-hidden text-xs">
+                                        <li class="dropdown-item px-3 py-2.5 hover:bg-rose-50 cursor-pointer transition-colors active" data-value="free">자유형 (Free)</li>
+                                        <li class="dropdown-item px-3 py-2.5 hover:bg-rose-50 cursor-pointer transition-colors" data-value="1:1">1:1 (정사각형)</li>
+                                        <li class="dropdown-item px-3 py-2.5 hover:bg-rose-50 cursor-pointer transition-colors" data-value="16:9">16:9 (HD 와이드)</li>
+                                        <li class="dropdown-item px-3 py-2.5 hover:bg-rose-50 cursor-pointer transition-colors" data-value="4:3">4:3 (표준)</li>
+                                        <li class="dropdown-item px-3 py-2.5 hover:bg-rose-50 cursor-pointer transition-colors" data-value="3:2">3:2 (사진)</li>
+                                        <li class="dropdown-item px-3 py-2.5 hover:bg-rose-50 cursor-pointer transition-colors" data-value="4:5">4:5 (인스타그램)</li>
+                                        <li class="dropdown-item px-3 py-2.5 hover:bg-rose-50 cursor-pointer transition-colors" data-value="2.35:1">2.35:1 (시네마틱)</li>
+                                    </ul>
+                                </div>
+                                <button id="rotate-ratio-btn" title="비율 회전" class="w-[38px] h-[38px] bg-white border border-rose-200 rounded-xl text-rose-500 hover:bg-rose-50 hover:text-rose-700 transition-all shadow-sm flex items-center justify-center">
+                                    <span class="material-symbols-outlined text-[20px]">screen_rotation</span>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="text-[10px] text-rose-600/70 italic leading-tight">마우스로 비디오 위를 드래그하거나<br>핸들을 움직여 영역을 조절하세요.</div>
+                    </div>
+                </div>
+
 
                 <!-- Color Depth -->
                 <div class="space-y-2">
@@ -606,6 +697,45 @@
     </div>
 
     <script src="app.js"></script>
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="hidden fixed inset-0 z-[10000] flex items-center justify-center p-6">
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
+        <div class="relative bg-white w-full max-w-sm rounded-3xl shadow-2xl border border-white/20 overflow-hidden animate-in fade-in zoom-in duration-200">
+            <!-- Modal Header -->
+            <div class="bg-indigo-600 px-6 py-4 flex items-center justify-between text-white">
+                <div class="flex items-center gap-2">
+                    <span class="material-symbols-outlined">settings</span>
+                    <h3 class="font-bold text-lg">설정</h3>
+                </div>
+                <button id="close-settings-btn" class="p-1 hover:bg-white/20 rounded-full transition-all">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            
+            <!-- Modal Body -->
+            <div class="p-6 space-y-6">
+                <div class="space-y-3">
+                    <div class="flex items-center gap-2 text-slate-700 font-bold">
+                        <span class="material-symbols-outlined text-indigo-500">folder_open</span>
+                        <span>저장 경로</span>
+                    </div>
+                    <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-[11px] text-slate-600 break-all font-mono leading-relaxed" id="current-save-path">
+                        /Users/downloads
+                    </div>
+                    <button id="change-save-path-btn" class="w-full py-2.5 bg-indigo-50 text-indigo-600 font-bold rounded-xl hover:bg-indigo-100 transition-all border border-indigo-100 flex items-center justify-center gap-2">
+                        <span class="material-symbols-outlined text-sm">edit</span>
+                        경로 변경
+                    </button>
+                </div>
+                
+                <div class="pt-4 border-t border-slate-100 flex justify-end">
+                    <button id="settings-confirm-btn" class="px-6 py-2.5 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-md">
+                        확인
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
 </body>
 
 </html>

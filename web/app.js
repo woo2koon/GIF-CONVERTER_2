@@ -1,4 +1,11 @@
 document.addEventListener('DOMContentLoaded', () => {
+    // 글로벌 에러 핸들러 (화면에 에러 표시)
+    window.onerror = function(msg, url, lineNo, columnNo, error) {
+        console.error('JS Error:', msg, lineNo);
+        updateStatus(`오류: ${msg} (line ${lineNo})`);
+        return false;
+    };
+
     // 폰트 로딩 감지 및 아이콘 노출 제어
     if (document.fonts) {
         document.fonts.ready.then(() => {
@@ -48,7 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const timelineSelection = document.getElementById('timeline-selection');
     const handleLeft = document.getElementById('handle-left');
     const handleRight = document.getElementById('handle-right');
-    const playhead = document.getElementById('playhead');
+    const playhead = document.getElementById('playhead-handle');
     const trimStartDisplay = document.getElementById('trim-start-display');
     const trimEndDisplay = document.getElementById('trim-end-display');
     const filmstripContainer = document.getElementById('filmstrip-container');
@@ -93,6 +100,23 @@ document.addEventListener('DOMContentLoaded', () => {
     const proxyResolvers = new Map();
     const conversionResolvers = new Map();
 
+    // --- Crop State ---
+    let isCropMode = false;
+    let isCropDragging = false;
+    let cropDragHandle = null;
+    let cropBoxState = { x: 10, y: 10, w: 80, h: 80 };
+    let cropStartX = 0, cropStartY = 0;
+    let cropAspectRatio = 'free'; // 'free', '1:1', '16:9', etc.
+
+    const cropToggle = document.getElementById('crop-toggle');
+    const cropControlsContainer = document.getElementById('crop-controls-container');
+    const cropOverlay = document.getElementById('crop-overlay');
+    const cropBoxUI = document.getElementById('crop-box');
+    const cropResetBtn = document.getElementById('crop-reset-btn');
+    const cropAspectRatioSelect = document.getElementById('crop-ratio-dropdown');
+
+        // updateCropUI definition removed (consolidated at line 2604)
+
     // --- OS Detection & DnD Blocking ---
     let currentOS = 'Unknown';
     const dropOverlay = document.getElementById('drop-overlay');
@@ -123,6 +147,22 @@ document.addEventListener('DOMContentLoaded', () => {
         if (uploadedFiles.length === 0) {
             if (addBtn) addBtn.classList.remove('hidden');
             if (addBtnCompact) addBtnCompact.classList.add('hidden');
+
+            // 목록이 비워지면 크롭 모드 강제 종료
+            isCropMode = false;
+            if (cropToggle) {
+                cropToggle.dataset.active = "false";
+                const knob = cropToggle.querySelector('div');
+                if (knob) knob.style.transform = 'translateX(0)';
+                cropToggle.classList.remove('bg-rose-500');
+                cropToggle.classList.add('bg-slate-300');
+            }
+            if (cropControlsContainer) {
+                cropControlsContainer.classList.add('hidden');
+                cropControlsContainer.classList.remove('flex');
+            }
+            if (cropOverlay) cropOverlay.classList.add('hidden');
+            if (cropBoxUI) cropBoxUI.classList.add('hidden');
         } else {
             if (addBtn) addBtn.classList.add('hidden');
             if (addBtnCompact) addBtnCompact.classList.remove('hidden');
@@ -160,6 +200,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     initOS();
+    
+    // Settings Elements
+    const settingsModal = document.getElementById('settings-modal');
+    const openSettingsBtn = document.getElementById('open-settings-btn');
+    const closeSettingsBtn = document.getElementById('close-settings-btn');
+    const changeSavePathBtn = document.getElementById('change-save-path-btn');
+    const settingsConfirmBtn = document.getElementById('settings-confirm-btn');
+    const currentSavePathDisplay = document.getElementById('current-save-path');
 
     // --- Custom Dropdown Logic ---
     function initCustomDropdowns() {
@@ -213,6 +261,22 @@ document.addEventListener('DOMContentLoaded', () => {
     const customWidthInput = document.getElementById('custom-width');
     const customHeightInput = document.getElementById('custom-height');
     const aspectRatioLock = document.getElementById('aspect-ratio-lock');
+    let isAspectRatioLocked = true; // 기본적으로 활성화
+    let lastTouchedCustomInput = 'width'; // 'width' 또는 'height'
+
+    // --- 추가된 함수: 현재 유효한 비율(크롭 반영) 계산 ---
+    function getCurrentEffectiveRatio() {
+        if (isCropMode && cropBoxState && selectedFileObj) {
+            // 실제 영상의 픽셀 해상도를 기준으로 비율 계산
+            const croppedW = selectedFileObj.width * (cropBoxState.w / 100);
+            const croppedH = selectedFileObj.height * (cropBoxState.h / 100);
+            return croppedW / croppedH;
+        }
+        if (selectedFileObj) {
+            return selectedFileObj.width / selectedFileObj.height;
+        }
+        return 16 / 9;
+    }
 
     batchSyncToggle.addEventListener('click', () => {
         const active = batchSyncToggle.dataset.active !== 'true';
@@ -245,29 +309,80 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // --- Resolution Control ---
+    if (aspectRatioLock) {
+        aspectRatioLock.addEventListener('click', () => {
+            isAspectRatioLocked = !isAspectRatioLocked;
+            aspectRatioLock.dataset.active = isAspectRatioLocked ? "true" : "false";
+            
+            if (isAspectRatioLocked) {
+                aspectRatioLock.classList.remove('text-slate-300');
+                aspectRatioLock.classList.add('text-indigo-400');
+                aspectRatioLock.querySelector('span').textContent = 'link';
+                
+                // --- 추가된 로직: 잠금 시 즉시 비율 동기화 ---
+                if (selectedFileObj) {
+                    const ratio = getCurrentEffectiveRatio();
+                    if (lastTouchedCustomInput === 'width') {
+                        const val = parseInt(customWidthInput.value);
+                        if (val > 0) customHeightInput.value = Math.round(val / ratio);
+                    } else {
+                        const val = parseInt(customHeightInput.value);
+                        if (val > 0) customWidthInput.value = Math.round(val * ratio);
+                    }
+                }
+            } else {
+                aspectRatioLock.classList.add('text-slate-300');
+                aspectRatioLock.classList.remove('text-indigo-400');
+                aspectRatioLock.querySelector('span').textContent = 'link_off';
+            }
+        });
+
+        // 초기 상태 설정
+        if (isAspectRatioLocked) {
+            aspectRatioLock.classList.remove('text-slate-300');
+            aspectRatioLock.classList.add('text-indigo-400');
+        }
+    }
+
+    if (customWidthInput) {
+        customWidthInput.addEventListener('input', () => {
+            lastTouchedCustomInput = 'width';
+            if (isAspectRatioLocked && selectedFileObj) {
+                const ratio = getCurrentEffectiveRatio();
+                const val = parseInt(customWidthInput.value);
+                if (val > 0) {
+                    customHeightInput.value = Math.round(val / ratio);
+                }
+            }
+        });
+    }
+
+    if (customHeightInput) {
+        customHeightInput.addEventListener('input', () => {
+            lastTouchedCustomInput = 'height';
+            if (isAspectRatioLocked && selectedFileObj) {
+                const ratio = getCurrentEffectiveRatio();
+                const val = parseInt(customHeightInput.value);
+                if (val > 0) {
+                    customWidthInput.value = Math.round(val * ratio);
+                }
+            }
+        });
+    }
+
     function updateSyncToggleVisibility() {
         const container = document.getElementById('batch-sync-container');
         if (!selectedFileObj || !container) return;
         
-        // 대기열에 실제로 저장된 항목이 2개 이상일 때만 노출
         const segmentCount = selectedFileObj.segments.length;
         
         if (segmentCount >= 2) {
             container.classList.remove('hidden');
-            setTimeout(() => {
-                container.classList.remove('opacity-0', 'max-h-0');
-                container.classList.add('opacity-100', 'max-h-40');
-            }, 10);
         } else {
-            container.classList.add('opacity-0', 'max-h-0');
-            container.classList.remove('opacity-100', 'max-h-40');
-            setTimeout(() => {
-                container.classList.add('hidden');
-            }, 500); // transition 시간과 맞춤
-            
-            // 숨겨질 때 동기화 모드도 자동으로 해제 (안전을 위해)
-            // 단, 파일 객체에 저장된 값은 유지하되 UI만 비활성화 느낌으로 처리
+            container.classList.add('hidden');
             updateToggleUI(batchSyncToggle, false);
+            selectedFileObj.isBatchSync = false;
         }
     }
 
@@ -292,9 +407,23 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (val === "직접 설정") {
             customResContainer.classList.remove('hidden');
-            if (selectedSegmentObj) {
-                customWidthInput.value = selectedSegmentObj.customWidth || selectedFileObj.width;
-                customHeightInput.value = selectedSegmentObj.customHeight || selectedFileObj.height;
+            if (selectedFileObj) {
+                const seg = getActiveSegment(selectedFileObj);
+                // 크롭 모드인 경우 현재 구도의 해상도를 우선적으로 사용
+                if (isCropMode && cropBoxState) {
+                    const cw = Math.round(selectedFileObj.width * (cropBoxState.w / 100));
+                    const ch = Math.round(selectedFileObj.height * (cropBoxState.h / 100));
+                    customWidthInput.value = cw;
+                    customHeightInput.value = ch;
+                    // 데이터에도 즉시 반영
+                    if (seg) {
+                        seg.customWidth = cw;
+                        seg.customHeight = ch;
+                    }
+                } else {
+                    customWidthInput.value = (seg && seg.customWidth) ? seg.customWidth : selectedFileObj.width;
+                    customHeightInput.value = (seg && seg.customHeight) ? seg.customHeight : selectedFileObj.height;
+                }
             }
         } else {
             customResContainer.classList.add('hidden');
@@ -312,8 +441,8 @@ document.addEventListener('DOMContentLoaded', () => {
             selectedSegmentObj.customWidth = val;
         }
         
-        if (aspectRatioLock.checked && selectedFileObj) {
-            const ratio = selectedFileObj.width / selectedFileObj.height;
+        if (isAspectRatioLocked && selectedFileObj) {
+            const ratio = getCurrentEffectiveRatio();
             const newHeight = Math.round(val / ratio);
             customHeightInput.value = newHeight;
             
@@ -338,8 +467,8 @@ document.addEventListener('DOMContentLoaded', () => {
             selectedSegmentObj.customHeight = val;
         }
         
-        if (aspectRatioLock.checked && selectedFileObj) {
-            const ratio = selectedFileObj.width / selectedFileObj.height;
+        if (isAspectRatioLocked && selectedFileObj) {
+            const ratio = getCurrentEffectiveRatio();
             const newWidth = Math.round(val * ratio);
             customWidthInput.value = newWidth;
             
@@ -353,9 +482,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (isBatchSync) renderSegments(selectedFileObj);
     });
 
-    aspectRatioLock.addEventListener('change', () => {
-        syncSetting('aspectRatioLock', aspectRatioLock.checked);
-    });
+    if (aspectRatioLock) {
+        aspectRatioLock.addEventListener('change', () => {
+            syncSetting('aspectRatioLock', aspectRatioLock.checked);
+        });
+    }
 
     colorsDropdown.addEventListener('change', (e) => {
         syncSetting('numColors', parseInt(e.detail.value));
@@ -507,7 +638,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     numColors: 256,
                     useDither: false,
                     loopPlayback: true,
-                    aspectRatioLock: aspectRatioLock.checked,
+                    aspectRatioLock: (aspectRatioLock ? aspectRatioLock.checked : true),
                     customWidth: parseInt(customWidthInput.value) || res.width,
                     customHeight: parseInt(customHeightInput.value) || res.height,
                     status: 'idle',
@@ -542,19 +673,33 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // 파일 선택 통합 처리 함수
-    async function handlePickVideos() {
-        console.log("Picking videos...");
+    // 파일 선택 통합 처리 함수 (전역 노출)
+    window.handlePickVideos = async function() {
+        console.log(">>> [UI] 파일 추가 버튼 클릭됨. Eel 호출 시도...");
+        updateStatus("파일 선택창을 여는 중...");
+        
         try {
+            const startTime = Date.now();
             const paths = await eel.pick_videos()();
-            console.log("Picked paths:", paths);
+            const duration = Date.now() - startTime;
+            
+            console.log(`<<< [Backend] 응답 도착 (소요시간: ${duration}ms):`, paths);
+            
             if (paths && paths.length > 0) {
+                updateStatus(`${paths.length}개의 파일 선택됨.`);
                 processFilePaths(paths);
+            } else {
+                console.log("!!! [UI] 선택된 파일이 없거나 취소되었습니다.");
+                updateStatus("");
             }
         } catch (err) {
-            console.error("Error picking videos via Eel:", err);
+            console.error("XXX [UI] Eel 호출 중 오류 발생:", err);
+            updateStatus("시스템 선택창 호출 실패. 브라우저 기본 창을 시도합니다.");
             // Fallback: Native file input
-            if (uploadInput) uploadInput.click();
+            if (uploadInput) {
+                console.log(">>> [UI] Fallback: 브라우저 기본 파일 입력창 호출");
+                uploadInput.click();
+            }
         }
     }
 
@@ -671,7 +816,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const [fid, sid] = tid.includes('@@') ? tid.split('@@') : [tid, null];
             const f = uploadedFiles.find(u => u.id === fid);
             if (f && sid) {
-                // 드래프트인 경우와 일반 세그먼트인 경우 구분
                 let p = 0;
                 if (sid.startsWith('draft_')) {
                     p = f.draft ? f.draft.progress : 0;
@@ -686,7 +830,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const overallGlobalProgress = Math.min(100, Math.round((completedBatchCount * 100 + activeTasksProgress) / totalBatchCount));
         const currentNum = Math.min(totalBatchCount, completedBatchCount + 1);
-        updateStatus(`변환 중(${currentNum}/${totalBatchCount}): ${fileObj.name} (${overallGlobalProgress}%)`);
+        updateStatus(`(${currentNum}/${totalBatchCount}) GIF 변환 중... (${overallGlobalProgress}%)`);
     }
 
     // Python에서 프록시 변환 완료 시 호출 (복구)
@@ -782,9 +926,9 @@ document.addEventListener('DOMContentLoaded', () => {
         // 글로벌 상태 업데이트 (완료 시점)
         const overallGlobalProgress = Math.min(100, Math.round((completedBatchCount * 100) / totalBatchCount));
         if (completedBatchCount < totalBatchCount) {
-            updateStatus(`변환 중(${completedBatchCount}/${totalBatchCount}) (${overallGlobalProgress}%)`);
+            updateStatus(`(${completedBatchCount}/${totalBatchCount}) GIF 변환 중... (${overallGlobalProgress}%)`);
         } else {
-            updateStatus(`GIF 변환 완료 (${totalBatchCount}/${totalBatchCount}) (100%)`);
+            updateStatus(`(${totalBatchCount}/${totalBatchCount}) GIF 변환 완료 (100%)`);
             eel.open_downloads_folder();
             setTimeout(() => updateStatus(""), 3000);
         }
@@ -952,6 +1096,28 @@ document.addEventListener('DOMContentLoaded', () => {
     let isEditingSavedSegment = false; 
 
     function selectVideo(fileObj) {
+        if (!fileObj) {
+            selectedFileObj = null;
+            selectedSegmentObj = null;
+            mainPlayer.src = "";
+            videoInfoPanel.classList.add('hidden');
+            emptyPlayerState.classList.remove('hidden');
+            document.getElementById('header-filename').textContent = "비디오를 선택하거나 업로드하세요";
+            
+            // 크롭 모드 강제 종료
+            isCropMode = false;
+            if (cropToggle) {
+                cropToggle.dataset.active = "false";
+                cropToggle.querySelector('div').style.transform = 'translateX(0)';
+                cropToggle.classList.replace('bg-rose-500', 'bg-slate-300');
+            }
+            if (cropControlsContainer) {
+                cropControlsContainer.classList.add('hidden');
+            }
+            updateCropUI();
+            return;
+        }
+
         const isSameFile = (selectedFileObj && selectedFileObj.id === fileObj.id);
         
         // 상태 업데이트
@@ -1082,8 +1248,27 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // 5. Batch Sync Toggle 상태 복구
         updateToggleUI(batchSyncToggle, fileObj.isBatchSync || false);
-        
         updateSyncToggleVisibility();
+
+        // 6. Crop State 동기화
+        if (seg.crop) {
+            isCropMode = true;
+            cropBoxState = { ...seg.crop };
+            cropToggle.dataset.active = "true";
+            cropToggle.querySelector('div').style.transform = 'translateX(20px)';
+            cropToggle.classList.replace('bg-slate-300', 'bg-rose-500');
+            cropControlsContainer.classList.remove('hidden');
+            cropControlsContainer.classList.add('flex');
+        } else {
+            isCropMode = false;
+            cropBoxState = { x: 10, y: 10, w: 80, h: 80 };
+            cropToggle.dataset.active = "false";
+            cropToggle.querySelector('div').style.transform = 'translateX(0)';
+            cropToggle.classList.replace('bg-rose-500', 'bg-slate-300');
+            cropControlsContainer.classList.add('hidden');
+            cropControlsContainer.classList.remove('flex');
+        }
+        updateCropUI();
     }
 
     mainPlayer.addEventListener('click', togglePlayPause);
@@ -1216,10 +1401,10 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const duration = selectedFileObj.duration;
         const timeToUse = forceTime !== null ? forceTime : mainPlayer.currentTime;
-        const currentPct = (timeToUse / duration);
+        const currentPct = (timeToUse / duration) * 100;
         
-        const rect = timelineTrack.getBoundingClientRect();
-        playhead.style.transform = `translateX(${currentPct * rect.width}px)`;
+        playhead.style.left = `${currentPct}%`;
+        playhead.style.transform = 'translateX(-50%)'; // 확실하게 중앙 정렬 강제
 
         const timeStr = formatTime(timeToUse);
         if (currentTimeDisplay.textContent !== timeStr) {
@@ -1487,10 +1672,19 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        if (e.target === handleLeft) {
+        const hLeft = e.target.closest('#handle-left');
+        const hRight = e.target.closest('#handle-right');
+        const hPlayhead = e.target.closest('#playhead-handle');
+
+        if (hLeft) {
             isDraggingLeft = true;
-        } else if (e.target === handleRight) {
+            playhead.style.opacity = "0.4"; // 드래그 중 플레이헤드 투명하게
+        } else if (hRight) {
             isDraggingRight = true;
+            playhead.style.opacity = "0.4";
+        } else if (hPlayhead) {
+            isScrubbing = true;
+            seekToPosition(e);
         } else {
             isScrubbing = true;
             seekToPosition(e);
@@ -1563,6 +1757,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 renderSegments(selectedFileObj);
                 renderGhostMarkers();
             }
+            playhead.style.opacity = "1.0"; // 투명도 복구
         }
         isScrubbing = false;
         isDraggingLeft = false;
@@ -1635,6 +1830,7 @@ document.addEventListener('DOMContentLoaded', () => {
             aspectRatioLock: currentSeg.aspectRatioLock,
             customWidth: currentSeg.customWidth,
             customHeight: currentSeg.customHeight,
+            crop: isCropMode ? { ...cropBoxState } : null,
             status: 'idle',
             progress: 0
         };
@@ -1666,55 +1862,62 @@ document.addEventListener('DOMContentLoaded', () => {
         // 드래그 중이거나 스크러빙 중일 때는 로직을 실행하지 않음
         if (!selectedFileObj || !selectedSegmentObj || isDraggingLeft || isDraggingRight || isScrubbing) return;
         
-        // rVFC가 지원되지 않는 브라우저를 위한 최소한의 폴백
-        if (!('requestVideoFrameCallback' in mainPlayer) && !mainPlayer.paused) {
-            const currentTime = mainPlayer.currentTime;
-            const start = selectedSegmentObj.start;
-            const end = selectedSegmentObj.end;
+        const currentTime = mainPlayer.currentTime;
+        const start = selectedSegmentObj.start;
+        const end = selectedSegmentObj.end;
+        const fps = selectedFileObj.fps || 24;
 
-            const frameDuration = 1 / (selectedFileObj.fps || 30);
-            if (currentTime >= end - (frameDuration * 1.2 + 0.001) || currentTime < start - 0.3) {
+        // rVFC가 지원되지 않는 브라우저를 위한 최소한의 폴백 (루프 로직)
+        if (!('requestVideoFrameCallback' in mainPlayer) && !mainPlayer.paused) {
+            const guardTime = 0.5 / fps;
+            if (currentTime >= end - guardTime || currentTime < start - 0.3) {
                 mainPlayer.currentTime = start;
             }
+        }
+        
+        // 재생 헤드 업데이트 (rVFC 미지원 시 fallback)
+        if (!('requestVideoFrameCallback' in mainPlayer)) {
+            updatePlayheadUI(currentTime);
         }
     });
 
     function updateUIFrame(now, metadata) {
         if (selectedFileObj && selectedSegmentObj && !isScrubbing && !isDraggingLeft && !isDraggingRight) {
             const currentTime = metadata && metadata.mediaTime ? metadata.mediaTime : mainPlayer.currentTime;
+            
+            // 실시간 재생 헤드 업데이트
             updatePlayheadUI(currentTime);
 
-            // 루프 로직 (rVFC 내부에서 더 정밀하게 처리)
+            // 루프 로직 (정밀 처리)
             if (!mainPlayer.paused) {
                 const start = selectedSegmentObj.start;
                 const end = selectedSegmentObj.end;
-                const fps = selectedFileObj.fps || 30;
-                const frameDuration = 1 / fps;
+                const fps = selectedFileObj.fps || 24;
+                const guardTime = 0.5 / fps;
 
-                // 아웃점 한 프레임 밀림 방지를 위해 약 1.2 프레임 정도 더 공격적으로 일찍 루프 처리
-                // 드롭프레임 및 브라우저 렌더링 오차를 고려하여 넉넉하게 잡음
-                if (currentTime >= end - (frameDuration * 1.2 + 0.001)) {
-                    mainPlayer.currentTime = start;
-                }
-                
-                // 인점보다 한참 뒤처진 경우 보정
-                if (currentTime < start - 0.3) {
+                if (currentTime >= end - guardTime || currentTime < start - 0.3) {
                     mainPlayer.currentTime = start;
                 }
             }
         }
         
-        if ('requestVideoFrameCallback' in mainPlayer && !mainPlayer.paused) {
-            mainPlayer.requestVideoFrameCallback(updateUIFrame);
+        if (!mainPlayer.paused) {
+            if ('requestVideoFrameCallback' in mainPlayer) {
+                mainPlayer.requestVideoFrameCallback(updateUIFrame);
+            } else {
+                requestAnimationFrame(updateUIFrame);
+            }
         }
     }
     
-    // 루프 시작
-    if ('requestVideoFrameCallback' in mainPlayer) {
-        mainPlayer.requestVideoFrameCallback(updateUIFrame);
-    } else {
-        requestAnimationFrame(updateUIFrame);
-    }
+    // 비디오가 재생 시작될 때 루프 가동
+    mainPlayer.addEventListener('play', () => {
+        if ('requestVideoFrameCallback' in mainPlayer) {
+            mainPlayer.requestVideoFrameCallback(updateUIFrame);
+        } else {
+            requestAnimationFrame(updateUIFrame);
+        }
+    });
 
     // --- Custom Context Menu Logic ---
     const ctxMenu = document.getElementById('custom-context-menu');
@@ -2070,8 +2273,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     currentTimeDisplay.textContent = "00:00:00";
                     document.getElementById('total-time-display').textContent = "00:00:00";
                     handleLeft.style.left = "0%";
+                    handleLeft.style.transform = "translateX(-50%)";
                     handleRight.style.left = "100%";
-                    playhead.style.transform = "translateX(0)";
+                    handleRight.style.transform = "translateX(-50%)";
+                    playhead.style.left = "0%";
+                    playhead.style.transform = "translateX(-50%)";
                     const mLeft = document.getElementById('mask-left');
                     const mRight = document.getElementById('mask-right');
                     if (mLeft) mLeft.style.width = "0%";
@@ -2132,7 +2338,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 params.resolution, 
                 params.numColors, 
                 params.useDither, 
-                params.loopPlayback
+                params.loopPlayback,
+                params.crop || null
             )().then(async (res) => {
                 if (res.status === 'processing') {
                     // 실제 인코딩이 완료될 때까지 대기 (슬롯 점유)
@@ -2149,6 +2356,21 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function getActualCropPercentages(videoRelativeCrop, fileObj) {
+        if (!videoRelativeCrop || !fileObj) return null;
+        
+        // 이미 영상 기준 % 좌표계이므로 추가적인 화면 좌표 변환이 불필요합니다.
+        // 부동 소수점 오차나 경계값만 미세하게 조정하여 반환합니다.
+        let { x, y, w, h } = videoRelativeCrop;
+        
+        x = Math.max(0, Math.min(x, 100));
+        y = Math.max(0, Math.min(y, 100));
+        w = Math.max(0.1, Math.min(w, 100 - x));
+        h = Math.max(0.1, Math.min(h, 100 - y));
+        
+        return { x, y, w, h };
+    }
+
     async function runConversion(useOverride = false) {
         const checkboxes = document.querySelectorAll('.lib-checkbox:checked');
         let selectedFiles = [];
@@ -2157,8 +2379,10 @@ document.addEventListener('DOMContentLoaded', () => {
             selectedFiles = Array.from(checkboxes).map(cb => uploadedFiles[parseInt(cb.dataset.index)]);
         } else if (selectedFileObj) {
             selectedFiles = [selectedFileObj];
-        } else {
-            alert("변환할 비디오를 선택하거나 체크해주세요.");
+        }
+
+        if (selectedFiles.length === 0) {
+            updateStatus("변환할 비디오를 선택하거나 체크해주세요.");
             return;
         }
 
@@ -2202,14 +2426,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 const start = seg.start;
                 const end = seg.end || 99999;
                 
-                let fps, resolution, numColors, useDither, loopPlayback;
+                let fps, resolution, numColors, useDither, loopPlayback, crop;
 
                 if (useOverride) {
                     fps = uiFps; resolution = uiResolution; numColors = uiNumColors; useDither = uiUseDither; loopPlayback = uiLoopPlayback;
+                    crop = isCropMode ? getActualCropPercentages(cropBoxState, fileObj) : null;
                 } else {
-                    // 대기열이 비어있던 경우(드래프트 상태)라면 현재 우측 설정창의 값을 사용
                     if (fileObj.segments.length === 0) {
                         fps = uiFps; resolution = uiResolution; numColors = uiNumColors; useDither = uiUseDither; loopPlayback = uiLoopPlayback;
+                        crop = isCropMode ? getActualCropPercentages(cropBoxState, fileObj) : null;
                     } else {
                         fps = seg.fps || 24;
                         resolution = seg.resolution || "중간 (720p)";
@@ -2219,6 +2444,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         numColors = seg.numColors || 256;
                         useDither = seg.useDither || false;
                         loopPlayback = seg.loopPlayback !== undefined ? seg.loopPlayback : true;
+                        crop = seg.crop ? getActualCropPercentages(seg.crop, fileObj) : null;
                     }
                 }
 
@@ -2240,7 +2466,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 conversionQueue.push({
                     fileObj,
                     segId: seg.id,
-                    params: { outName, start, end, fps, resolution, numColors, useDither, loopPlayback }
+                    params: { outName, start, end, fps, resolution, numColors, useDither, loopPlayback, crop }
                 });
             }
         }
@@ -2249,4 +2475,526 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     convertBtn.addEventListener('click', () => runConversion(false));
+    
+    // --- Crop Logic (Event Listeners) ---
+    if (cropToggle) {
+        cropToggle.addEventListener('click', () => {
+            if (!selectedFileObj) return;
+            isCropMode = !isCropMode;
+            cropToggle.dataset.active = isCropMode;
+            
+            const activeSeg = getActiveSegment(selectedFileObj);
+
+            if (isCropMode) {
+                cropToggle.querySelector('div').style.transform = 'translateX(20px)';
+                cropToggle.classList.replace('bg-slate-300', 'bg-rose-500');
+                cropControlsContainer.classList.remove('hidden');
+                cropControlsContainer.classList.add('flex');
+                
+                // 켤 때 현재 세그먼트에 크롭 정보가 없으면 Safe Zone 기준으로 초기화
+                if (activeSeg && !activeSeg.crop) {
+                    resetCropToSafeZone();
+                }
+
+                // 직접 설정 모드라면 크롭 해상도로 즉시 업데이트
+                const resSelected = document.getElementById('res-selected');
+                if (resSelected && resSelected.textContent === "직접 설정" && selectedFileObj) {
+                    const cw = Math.round(selectedFileObj.width * (cropBoxState.w / 100));
+                    const ch = Math.round(selectedFileObj.height * (cropBoxState.h / 100));
+                    customWidthInput.value = cw;
+                    customHeightInput.value = ch;
+                    if (activeSeg) {
+                        activeSeg.customWidth = cw;
+                        activeSeg.customHeight = ch;
+                    }
+                }
+            } else {
+                cropToggle.querySelector('div').style.transform = 'translateX(0)';
+                cropToggle.classList.replace('bg-rose-500', 'bg-slate-300');
+                cropControlsContainer.classList.add('hidden');
+                cropControlsContainer.classList.remove('flex');
+
+                // 끌 때 '직접 설정' 상태라면 원본 해상도로 복구
+                const resSelected = document.getElementById('res-selected');
+                if (resSelected && resSelected.textContent === "직접 설정" && selectedFileObj) {
+                    customWidthInput.value = selectedFileObj.width;
+                    customHeightInput.value = selectedFileObj.height;
+                    if (activeSeg) {
+                        activeSeg.customWidth = selectedFileObj.width;
+                        activeSeg.customHeight = selectedFileObj.height;
+                    }
+                }
+            }
+            
+            // 현재 상태를 세그먼트에 즉시 반영
+            if (activeSeg) {
+                activeSeg.crop = isCropMode ? { ...cropBoxState } : null;
+            }
+            
+            updateCropUI();
+        });
+    }
+
+    if (cropResetBtn) {
+        cropResetBtn.addEventListener('click', () => {
+            cropBoxState = { x: 0, y: 0, w: 100, h: 100 }; // 영상 전체 (영상 기준 %)
+            
+            const activeSeg = getActiveSegment(selectedFileObj);
+            if (activeSeg) {
+                activeSeg.crop = isCropMode ? { ...cropBoxState } : null;
+            }
+            
+            updateCropUI();
+        });
+    }
+
+
+    // --- 추가: 창 크기 변화 감지 (자석 효과) ---
+    const resizeObserver = new ResizeObserver(() => {
+        if (isCropMode) updateCropUI();
+    });
+    if (cropOverlay) resizeObserver.observe(cropOverlay);
+
+    function getVideoSafeZone() {
+        const video = document.getElementById('main-player');
+        if (!video || !cropOverlay) return { minX: 0, maxX: 100, minY: 0, maxY: 100, vW: 0, vH: 0 };
+        
+        const rect = cropOverlay.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return { minX: 0, maxX: 100, minY: 0, maxY: 100, vW: 0, vH: 0 };
+
+        // 비디오 비율 결정 (videoWidth 우선, 없으면 selectedFileObj)
+        let vW = video.videoWidth;
+        let vH = video.videoHeight;
+        if (vW === 0 && selectedFileObj) {
+            vW = selectedFileObj.width;
+            vH = selectedFileObj.height;
+        }
+        
+        if (!vW || !vH) return { minX: 0, maxX: 100, minY: 0, maxY: 100, vW: 0, vH: 0 };
+
+        const videoRatio = vW / vH;
+        const containerRatio = rect.width / rect.height;
+        
+        let minX = 0, maxX = 100, minY = 0, maxY = 100;
+
+        if (videoRatio > containerRatio) {
+            const renderedHeight = rect.width / videoRatio;
+            const offsetY = (rect.height - renderedHeight) / 2;
+            minY = (offsetY / rect.height) * 100;
+            maxY = 100 - minY;
+        } else {
+            const renderedHeight = rect.height;
+            const renderedWidth = rect.height * videoRatio;
+            const offsetX = (rect.width - renderedWidth) / 2;
+            minX = (offsetX / rect.width) * 100;
+            maxX = 100 - minX;
+        }
+
+        return { minX, maxX, minY, maxY, vW, vH, rect };
+    }
+
+    function resetCropToSafeZone() {
+        const safe = getVideoSafeZone();
+        const ratio = getRatioValue();
+        const rect = cropOverlay.getBoundingClientRect();
+        const containerRatio = rect.width / rect.height;
+        const adjRatio = ratio ? ratio / containerRatio : null;
+
+        const safeW = safe.maxX - safe.minX;
+        const safeH = safe.maxY - safe.minY;
+        
+        let w, h, x, y;
+        if (adjRatio) {
+            if (adjRatio > (safeW / safeH)) {
+                w = safeW * 0.8;
+                h = w / adjRatio;
+            } else {
+                h = safeH * 0.8;
+                w = h * adjRatio;
+            }
+        } else {
+            w = safeW * 0.8;
+            h = safeH * 0.8;
+        }
+
+        x = safe.minX + (safeW - w) / 2;
+        y = safe.minY + (safeH - h) / 2;
+
+        cropBoxState = { x, y, w, h };
+        const activeSeg = getActiveSegment(selectedFileObj);
+        if (activeSeg) activeSeg.crop = { ...cropBoxState };
+        updateCropUI();
+    }
+
+    function updateCropUI() {
+        if (!isCropMode || !cropOverlay || !cropBoxUI) {
+            if (cropOverlay) cropOverlay.classList.add('hidden');
+            return;
+        }
+
+        const safe = getVideoSafeZone();
+        const safeW = safe.maxX - safe.minX;
+        const safeH = safe.maxY - safe.minY;
+
+        // --- 영상 기준 %를 화면 기준 %로 변환 ---
+        // cropBoxState 는 이제 영상 영역(safe) 내에서의 0~100% 임
+        let x = safe.minX + (cropBoxState.x / 100) * safeW;
+        let y = safe.minY + (cropBoxState.y / 100) * safeH;
+        let w = (cropBoxState.w / 100) * safeW;
+        let h = (cropBoxState.h / 100) * safeH;
+
+        // 화면에 반영
+        cropOverlay.classList.remove('hidden');
+        cropBoxUI.classList.remove('hidden');
+        cropBoxUI.style.left = `${x}%`;
+        cropBoxUI.style.top = `${y}%`;
+        cropBoxUI.style.width = `${w}%`;
+        cropBoxUI.style.height = `${h}%`;
+
+        // 세그먼트에 저장 (동기화)
+        const activeSeg = getActiveSegment(selectedFileObj);
+        if (activeSeg) activeSeg.crop = { ...cropBoxState };
+
+        // --- 실시간 해상도 입력창 동기화 ---
+        const resSelected = document.getElementById('res-selected');
+        const isCustomRes = resSelected && resSelected.textContent === "직접 설정";
+        
+        if (isCustomRes && selectedFileObj) {
+            const customWidthInput = document.getElementById('custom-width');
+            const customHeightInput = document.getElementById('custom-height');
+            
+            // 크롭 박스를 움직이면 해상도 수치도 실시간으로 반영
+            if (customWidthInput && customHeightInput) {
+                const actualW = Math.round(selectedFileObj.width * (cropBoxState.w / 100));
+                const actualH = Math.round(selectedFileObj.height * (cropBoxState.h / 100));
+                
+                customWidthInput.value = actualW;
+                customHeightInput.value = actualH;
+
+                // 세그먼트 데이터에도 즉시 반영 (변환 시 사용됨)
+                if (activeSeg) {
+                    activeSeg.customWidth = actualW;
+                    activeSeg.customHeight = actualH;
+                }
+            }
+        } else if (typeof isAspectRatioLocked !== 'undefined' && isAspectRatioLocked) {
+            const customWidthInput = document.getElementById('custom-width');
+            const customHeightInput = document.getElementById('custom-height');
+            if (customWidthInput && customHeightInput && customWidthInput.value) {
+                const ratio = getCurrentEffectiveRatio();
+                if (lastTouchedCustomInput === 'width') {
+                    const val = parseInt(customWidthInput.value);
+                    if (val > 0) customHeightInput.value = Math.round(val / ratio);
+                } else {
+                    const val = parseInt(customHeightInput.value);
+                    if (val > 0) customWidthInput.value = Math.round(val * ratio);
+                }
+            }
+        }
+    }
+
+    function getRatioValue() {
+        if (cropAspectRatio === 'free') return null;
+        if (typeof cropAspectRatio === 'string' && cropAspectRatio.includes(':')) {
+            const parts = cropAspectRatio.split(':').map(Number);
+            if (parts.length === 2 && parts[0] > 0 && parts[1] > 0) {
+                return parts[0] / parts[1];
+            }
+        }
+        return null;
+    }
+
+    function applyAspectRatio(ratio) {
+        if (!ratio) return;
+        
+        const video = document.getElementById('main-player');
+        const videoRatio = video ? video.videoWidth / video.videoHeight : (selectedFileObj ? selectedFileObj.width / selectedFileObj.height : 1);
+        
+        // 영상 % 공간(0~100)에서의 타겟 비율 계산
+        const ratio_v = ratio / videoRatio;
+
+        let w, h, x, y;
+
+        // 영상 영역의 80% 크기로 시작 (비율에 맞춰)
+        if (ratio_v > 1) {
+            // 가로가 상대적으로 더 긴 경우
+            w = 80;
+            h = w / ratio_v;
+            // 만약 세로가 100%를 넘으면 세로에 맞춤
+            if (h > 100) {
+                h = 100;
+                w = h * ratio_v;
+            }
+        } else {
+            // 세로가 상대적으로 더 긴 경우
+            h = 80;
+            w = h * ratio_v;
+            // 만약 가로가 100%를 넘으면 가로에 맞춤
+            if (w > 100) {
+                w = 100;
+                h = w / ratio_v;
+            }
+        }
+
+        // 영상 내부(0~100) 기준 중앙 정렬
+        x = (100 - w) / 2;
+        y = (100 - h) / 2;
+
+        cropBoxState = { x, y, w, h };
+        updateCropUI();
+    }
+
+    if (cropAspectRatioSelect) {
+        cropAspectRatioSelect.addEventListener('change', (e) => {
+            const value = e.detail ? e.detail.value : e.target.value;
+            cropAspectRatio = value;
+            const ratio = getRatioValue();
+            if (ratio) {
+                applyAspectRatio(ratio);
+            } else if (value === 'free') {
+                updateCropUI();
+            }
+        });
+    }
+
+    const rotateRatioBtn = document.getElementById('rotate-ratio-btn');
+    if (rotateRatioBtn) {
+        rotateRatioBtn.addEventListener('click', () => {
+            if (cropAspectRatio === 'free' || cropAspectRatio === '1:1') return;
+            
+            let parts = cropAspectRatio.split(':').map(val => val.trim());
+            if (parts.length !== 2) return;
+            
+            // 가로세로 스왑
+            const newRatioStr = `${parts[1]}:${parts[0]}`;
+            cropAspectRatio = newRatioStr;
+            
+            // UI 업데이트 (드롭다운 텍스트 및 활성 상태)
+            const dropdown = document.getElementById('crop-ratio-dropdown');
+            const items = dropdown.querySelectorAll('.dropdown-item');
+            const selectedSpan = document.getElementById('crop-ratio-selected');
+            
+            let found = false;
+            items.forEach(item => {
+                if (item.dataset.value === newRatioStr) {
+                    selectedSpan.textContent = item.textContent;
+                    items.forEach(i => i.classList.remove('active'));
+                    item.classList.add('active');
+                    found = true;
+                }
+            });
+            
+            if (!found) {
+                selectedSpan.textContent = `${newRatioStr} (회전됨)`;
+                items.forEach(i => i.classList.remove('active'));
+            }
+            
+            const ratio = getRatioValue();
+            if (ratio) applyAspectRatio(ratio);
+        });
+    }
+
+    if (cropResetBtn) {
+        cropResetBtn.addEventListener('click', () => {
+            resetCropToSafeZone();
+        });
+    }
+
+    cropOverlay.addEventListener('mousedown', (e) => {
+        if (!isCropMode) return;
+        const target = e.target;
+        const rect = cropOverlay.getBoundingClientRect();
+        
+        if (target.hasAttribute('data-handle')) {
+            cropDragHandle = target.getAttribute('data-handle');
+        } else {
+            // 영역 그리기 (Draw)
+            cropDragHandle = 'draw';
+            const safe = getVideoSafeZone();
+            const mouseX_overlay = ((e.clientX - rect.left) / rect.width) * 100;
+            const mouseY_overlay = ((e.clientY - rect.top) / rect.height) * 100;
+            
+            // 화면 %를 영상 %로 변환
+            cropBoxState.x = ((mouseX_overlay - safe.minX) / (safe.maxX - safe.minX)) * 100;
+            cropBoxState.y = ((mouseY_overlay - safe.minY) / (safe.maxY - safe.minY)) * 100;
+            cropBoxState.w = 0;
+            cropBoxState.h = 0;
+        }
+        
+        isCropDragging = true;
+        cropStartX = e.clientX;
+        cropStartY = e.clientY;
+        
+        // 그리기 시작할 때 핸들이 방해되지 않도록 z-index 일시 조정
+        if (cropDragHandle === 'draw') {
+            cropBoxUI.style.pointerEvents = 'none';
+        }
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isCropDragging || !isCropMode) return;
+        const rect = cropOverlay.getBoundingClientRect();
+        const containerRatio = rect.width / rect.height;
+        const ratio = getRatioValue();
+        const adjRatio = ratio ? ratio / containerRatio : null;
+        const safe = getVideoSafeZone();
+        const safeW = safe.maxX - safe.minX;
+        const safeH = safe.maxY - safe.minY;
+
+        // 현재 비디오 기준 % 상태 (0~100)
+        let { x, y, w, h } = cropBoxState;
+
+        if (cropDragHandle === 'move') {
+            const dx_overlay = ((e.clientX - cropStartX) / rect.width) * 100;
+            const dy_overlay = ((e.clientY - cropStartY) / rect.height) * 100;
+            
+            // 화면 변화량을 영상 % 변화량으로 변환
+            const dx_video = (dx_overlay / safeW) * 100;
+            const dy_video = (dy_overlay / safeH) * 100;
+            
+            x += dx_video; y += dy_video;
+            
+            // 이동 클램핑 (영상 내부로)
+            x = Math.max(0, Math.min(x, 100 - w));
+            y = Math.max(0, Math.min(y, 100 - h));
+            
+            cropStartX = e.clientX;
+            cropStartY = e.clientY;
+        } else {
+            // --- 앵커 기반 리사이징 로직 (모든 계산은 영상 % 기준) ---
+            let left = x, top = y, right = x + w, bottom = y + h;
+            
+            const mx_overlay = ((e.clientX - rect.left) / rect.width) * 100;
+            const my_overlay = ((e.clientY - rect.top) / rect.height) * 100;
+            
+            // 화면 마우스 좌표를 영상 % 좌표로 변환 (0~100)
+            const mx = Math.max(0, Math.min(100, ((mx_overlay - safe.minX) / safeW) * 100));
+            const my = Math.max(0, Math.min(100, ((my_overlay - safe.minY) / safeH) * 100));
+
+            if (cropDragHandle === 'draw') {
+                right = mx; bottom = my;
+            } else {
+                if (cropDragHandle.includes('l')) left = mx;
+                if (cropDragHandle.includes('r')) right = mx;
+                if (cropDragHandle.includes('t')) top = my;
+                if (cropDragHandle.includes('b')) bottom = my;
+            }
+
+            let curL = Math.min(left, right), curR = Math.max(left, right);
+            let curT = Math.min(top, bottom), curB = Math.max(top, bottom);
+            let curW = curR - curL, curH = curB - curT;
+
+            if (ratio) {
+                // 비디오 픽셀 비율 보정 (adjRatio 는 컨테이너 기준이므로 영상 픽셀 기준 ratio_v로 변환)
+                const video = document.getElementById('main-player');
+                const videoRatio = video ? video.videoWidth / video.videoHeight : (selectedFileObj ? selectedFileObj.width / selectedFileObj.height : 1);
+                const ratio_v = ratio / videoRatio; // 영상 % 공간에서의 비율
+
+                if (['l', 'r'].includes(cropDragHandle)) {
+                    const targetH = curW / ratio_v;
+                    const centerY = (top + bottom) / 2;
+                    const maxH = Math.min(centerY - 0, 100 - centerY) * 2;
+                    if (targetH > maxH) {
+                        curH = maxH;
+                        curW = maxH * ratio_v;
+                        if (cropDragHandle === 'l') curL = curR - curW; else curR = curL + curW;
+                    } else {
+                        curH = targetH;
+                    }
+                    curT = centerY - curH / 2;
+                    curB = centerY + curH / 2;
+                } else if (['t', 'b'].includes(cropDragHandle)) {
+                    const targetW = curH * ratio_v;
+                    const centerX = (left + right) / 2;
+                    const maxW = Math.min(centerX - 0, 100 - centerX) * 2;
+                    if (targetW > maxW) {
+                        curW = maxW;
+                        curH = maxW / ratio_v;
+                        if (cropDragHandle === 't') curT = curB - curH; else curB = curT + curH;
+                    } else {
+                        curW = targetW;
+                    }
+                    curL = centerX - curW / 2;
+                    curR = centerX + curW / 2;
+                } else {
+                    if (curW / curH > ratio_v) {
+                        curW = curH * ratio_v;
+                        if (cropDragHandle.includes('l') || (cropDragHandle === 'draw' && mx < x)) curL = curR - curW; else curR = curL + curW;
+                    } else {
+                        curH = curW / ratio_v;
+                        if (cropDragHandle.includes('t') || (cropDragHandle === 'draw' && my < y)) curT = curB - curH; else curB = curT + curH;
+                    }
+                    // 영상 경계 클램핑 (0~100)
+                    if (curL < 0 || curR > 100 || curT < 0 || curB > 100) {
+                        const availW = cropDragHandle.includes('l') ? curR - 0 : 100 - curL;
+                        const availH = cropDragHandle.includes('t') ? curB - 0 : 100 - curT;
+                        const finalW = Math.min(availW, availH * ratio_v);
+                        const finalH = finalW / ratio_v;
+                        if (cropDragHandle.includes('l')) curL = curR - finalW; else curR = curL + finalW;
+                        if (cropDragHandle.includes('t')) curT = curB - finalH; else curB = curT + finalH;
+                        curW = finalW; curH = finalH;
+                    }
+                }
+            }
+
+            x = Math.max(0, curL); y = Math.max(0, curT);
+            w = Math.min(curR, 100) - x; h = Math.min(curB, 100) - y;
+        }
+
+        cropBoxState = { x, y, w, h };
+        updateCropUI();
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (isCropDragging) {
+            isCropDragging = false;
+            cropDragHandle = null;
+            cropBoxUI.style.pointerEvents = 'auto';
+            
+            const activeSeg = getActiveSegment(selectedFileObj);
+            if (activeSeg) {
+                activeSeg.crop = isCropMode ? { ...cropBoxState } : null;
+            }
+        }
+    });
+
+    // --- Settings Logic ---
+    async function loadSettings() {
+        if (!currentSavePathDisplay) return;
+        const path = await eel.get_save_directory()();
+        currentSavePathDisplay.textContent = path;
+    }
+
+    if (openSettingsBtn) {
+        openSettingsBtn.addEventListener('click', () => {
+            loadSettings();
+            settingsModal.classList.remove('hidden');
+        });
+    }
+
+    if (closeSettingsBtn) {
+        closeSettingsBtn.addEventListener('click', () => {
+            settingsModal.classList.add('hidden');
+        });
+    }
+
+    if (settingsConfirmBtn) {
+        settingsConfirmBtn.addEventListener('click', () => {
+            settingsModal.classList.add('hidden');
+        });
+    }
+
+    if (changeSavePathBtn) {
+        changeSavePathBtn.addEventListener('click', async () => {
+            const newPath = await eel.select_save_directory()();
+            if (newPath) {
+                currentSavePathDisplay.textContent = newPath;
+                updateStatus(`저장 경로가 변경되었습니다: ${newPath}`);
+                setTimeout(() => updateStatus(""), 3000);
+            }
+        });
+    }
+
+    // 초기 로드
+    loadSettings();
 });
