@@ -1,4 +1,5 @@
 import eel
+VERSION = "1.3.0"
 import os
 import base64
 import bottle
