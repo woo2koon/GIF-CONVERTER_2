@@ -225,10 +225,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         path: res.stream_url, // FFmpeg Input
                         streamUrl: res.stream_url, // Player Input
                         duration: res.duration,
-                        width: 1280, // Default for 720p fallback
-                        height: 720,
+                        width: res.width || 1280,
+                        height: res.height || 720,
                         size: 0, 
-                        fps: 30, // YouTube default assumption
+                        fps: res.fps || 30, 
                         thumbnail: res.thumbnail,
                         isYoutube: true,
                         author: res.author,
@@ -243,8 +243,8 @@ document.addEventListener('DOMContentLoaded', () => {
                             useDither: false,
                             loopPlayback: true,
                             aspectRatioLock: true,
-                            customWidth: 1280,
-                            customHeight: 720,
+                            customWidth: res.width || 1280,
+                            customHeight: res.height || 720,
                             status: 'idle',
                             progress: 0
                         },

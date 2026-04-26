@@ -74,19 +74,33 @@ def get_youtube_info(url):
             formats = info.get('formats', [])
             stream_url = info.get('url') # Default
             
-            # 1. 720p progressive mp4 (itag 22) 시도
+            # 1. 1080p progressive mp4 시도 (매우 드물지만 확인)
+            prog_1080 = next((f for f in formats if f.get('ext') == 'mp4' and f.get('vcodec') != 'none' and f.get('acodec') != 'none' and f.get('height') == 1080), None)
+            # 2. 720p progressive mp4 (itag 22) 시도
             prog_720 = next((f for f in formats if f.get('ext') == 'mp4' and f.get('vcodec') != 'none' and f.get('acodec') != 'none' and f.get('height') == 720), None)
-            # 2. 360p progressive mp4 (itag 18) 시도
+            # 3. 360p progressive mp4 (itag 18) 시도
             prog_360 = next((f for f in formats if f.get('ext') == 'mp4' and f.get('vcodec') != 'none' and f.get('acodec') != 'none' and f.get('height') == 360), None)
-            # 3. 기타 mp4 progressive 시도
-            prog_any = next((f for f in formats if f.get('ext') == 'mp4' and f.get('vcodec') != 'none' and f.get('acodec') != 'none'), None)
+            
+            # DASH/분리형 포맷에서 1080p 비디오 시도 (재생은 안될 수 있으나 FFmpeg용으로 확보 가능성)
+            video_1080 = next((f for f in formats if f.get('vcodec') != 'none' and f.get('height') == 1080), None)
 
-            target_format = prog_720 or prog_360 or prog_any
+            target_format = prog_1080 or prog_720 or prog_360
+            
+            # 해상도 정보 결정
+            width = info.get('width', 1280)
+            height = info.get('height', 720)
+            
             if target_format:
                 stream_url = target_format.get('url')
-                print(f"[Backend] 재생용 Progressive 포맷 선택됨: {target_format.get('format_id')} ({target_format.get('height')}p)")
-            else:
-                print("[Backend] Progressive mp4 포맷을 찾지 못해 기본 URL 사용")
+                width = target_format.get('width', width)
+                height = target_format.get('height', height)
+                print(f"[Backend] 재생용 포맷 선택됨: {target_format.get('format_id')} ({height}p)")
+            elif video_1080:
+                # 비디오만 있는 1080p라도 일단 정보는 가져옴
+                stream_url = video_1080.get('url')
+                width = video_1080.get('width', width)
+                height = video_1080.get('height', height)
+                print(f"[Backend] 1080p 비디오 전용 포맷 선택됨 (소리 미지원 가능성)")
 
             print(f"[Backend] YouTube 정보 추출 성공 (소요시간: {time.time() - start_time:.2f}s)")
             return {
@@ -94,6 +108,8 @@ def get_youtube_info(url):
                 "id": info.get('id'),
                 "title": info.get('title'),
                 "duration": info.get('duration'),
+                "width": width,
+                "height": height,
                 "thumbnail": info.get('thumbnail'),
                 "stream_url": stream_url,
                 "author": info.get('uploader')
