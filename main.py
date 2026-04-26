@@ -52,12 +52,17 @@ def get_os_info():
 @eel.expose
 def get_youtube_info(url):
     """yt-dlp를 사용하여 유튜브 영상 정보를 추출합니다."""
+    import time
+    start_time = time.time()
     print(f"\n[Backend] YouTube 정보 추출 시도: {url}")
     
     ydl_opts = {
-        'format': 'bestvideo[height<=720]+bestaudio/best[height<=720]/best',
+        'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best',
         'quiet': True,
         'no_warnings': True,
+        'noplaylist': True,
+        'skip_download': True,
+        'extract_flat': False, # 세부 정보 필요하므로 False 유지하되 포맷 제한
     }
     
     try:
@@ -70,7 +75,7 @@ def get_youtube_info(url):
             # 플레이어에서 재생 가능한 포맷 찾기 (보통 mp4 우선)
             stream_url = info.get('url') # Fallback
             
-            # 가능한 경우 직접 스트림 URL 확보
+            print(f"[Backend] YouTube 정보 추출 성공 (소요시간: {time.time() - start_time:.2f}s)")
             return {
                 "status": "success",
                 "id": info.get('id'),
