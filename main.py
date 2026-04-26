@@ -57,7 +57,7 @@ def get_youtube_info(url):
     print(f"\n[Backend] YouTube 정보 추출 시도: {url}")
     
     ydl_opts = {
-        'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best',
+        'format': 'best', # 모든 포맷 정보를 가져오되 나중에 코드에서 필터링
         'quiet': True,
         'no_warnings': True,
         'noplaylist': True,
@@ -69,12 +69,25 @@ def get_youtube_info(url):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             
-            # 스트림 URL 추출 (FFmpeg 및 비디오 플레이어용)
+            # 플레이어에서 재생 가능한 포맷 찾기 (Progressive MP4 우선)
+            # 포맷 22(720p mp4), 18(360p mp4) 등이 직접 재생에 가장 유리함
             formats = info.get('formats', [])
+            stream_url = info.get('url') # Default
             
-            # 플레이어에서 재생 가능한 포맷 찾기 (보통 mp4 우선)
-            stream_url = info.get('url') # Fallback
-            
+            # 1. 720p progressive mp4 (itag 22) 시도
+            prog_720 = next((f for f in formats if f.get('ext') == 'mp4' and f.get('vcodec') != 'none' and f.get('acodec') != 'none' and f.get('height') == 720), None)
+            # 2. 360p progressive mp4 (itag 18) 시도
+            prog_360 = next((f for f in formats if f.get('ext') == 'mp4' and f.get('vcodec') != 'none' and f.get('acodec') != 'none' and f.get('height') == 360), None)
+            # 3. 기타 mp4 progressive 시도
+            prog_any = next((f for f in formats if f.get('ext') == 'mp4' and f.get('vcodec') != 'none' and f.get('acodec') != 'none'), None)
+
+            target_format = prog_720 or prog_360 or prog_any
+            if target_format:
+                stream_url = target_format.get('url')
+                print(f"[Backend] 재생용 Progressive 포맷 선택됨: {target_format.get('format_id')} ({target_format.get('height')}p)")
+            else:
+                print("[Backend] Progressive mp4 포맷을 찾지 못해 기본 URL 사용")
+
             print(f"[Backend] YouTube 정보 추출 성공 (소요시간: {time.time() - start_time:.2f}s)")
             return {
                 "status": "success",
