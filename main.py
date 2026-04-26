@@ -1,5 +1,5 @@
 import eel
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 import os
 import base64
 import bottle
@@ -8,6 +8,7 @@ import subprocess
 import imageio_ffmpeg
 import re
 import json
+import yt_dlp
 
 # pywebview 전역 참조 (맥OS에서 파일 다이얼로그 호출용)
 try:
@@ -47,6 +48,41 @@ eel.init('web')
 def get_os_info():
     import platform
     return platform.system()
+
+@eel.expose
+def get_youtube_info(url):
+    """yt-dlp를 사용하여 유튜브 영상 정보를 추출합니다."""
+    print(f"\n[Backend] YouTube 정보 추출 시도: {url}")
+    
+    ydl_opts = {
+        'format': 'bestvideo[height<=720]+bestaudio/best[height<=720]/best',
+        'quiet': True,
+        'no_warnings': True,
+    }
+    
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            
+            # 스트림 URL 추출 (FFmpeg 및 비디오 플레이어용)
+            formats = info.get('formats', [])
+            
+            # 플레이어에서 재생 가능한 포맷 찾기 (보통 mp4 우선)
+            stream_url = info.get('url') # Fallback
+            
+            # 가능한 경우 직접 스트림 URL 확보
+            return {
+                "status": "success",
+                "id": info.get('id'),
+                "title": info.get('title'),
+                "duration": info.get('duration'),
+                "thumbnail": info.get('thumbnail'),
+                "stream_url": stream_url,
+                "author": info.get('uploader')
+            }
+    except Exception as e:
+        print(f"YouTube extraction error: {e}")
+        return {"status": "error", "message": str(e)}
 
 @eel.expose
 def get_save_directory():

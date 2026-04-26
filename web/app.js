@@ -18,6 +18,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const uploadInput = document.getElementById('video-upload');
     const addBtn = document.getElementById('add-video-btn');
     const addBtnCompact = document.getElementById('add-video-btn-compact');
+    const youtubeBtn = document.getElementById('add-youtube-btn');
+    const youtubeBtnCompact = document.getElementById('add-youtube-btn-compact');
+    const youtubeModal = document.getElementById('youtube-modal');
+    const youtubeUrlInput = document.getElementById('youtube-url-input');
+    const youtubeConfirmBtn = document.getElementById('youtube-confirm-btn');
+    const youtubeCancelBtn = document.getElementById('youtube-cancel-btn');
     const libraryList = document.getElementById('library-list');
     const mainPlayer = document.getElementById('main-player');
     const placeholderMsg = document.getElementById('placeholder-msg');
@@ -143,10 +149,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function renderLibrary() {
+        libraryList.innerHTML = '';
+        uploadedFiles.forEach(addLibraryItem);
+    }
+
     function updateLibraryEmptyState() {
         if (uploadedFiles.length === 0) {
-            if (addBtn) addBtn.classList.remove('hidden');
+            if (addBtn) addBtn.parentElement.classList.remove('hidden'); // Wrapper for both add buttons
             if (addBtnCompact) addBtnCompact.classList.add('hidden');
+            if (youtubeBtnCompact) youtubeBtnCompact.classList.add('hidden');
 
             // 목록이 비워지면 크롭 모드 강제 종료
             isCropMode = false;
@@ -164,9 +176,101 @@ document.addEventListener('DOMContentLoaded', () => {
             if (cropOverlay) cropOverlay.classList.add('hidden');
             if (cropBoxUI) cropBoxUI.classList.add('hidden');
         } else {
-            if (addBtn) addBtn.classList.add('hidden');
+            if (addBtn) addBtn.parentElement.classList.add('hidden');
             if (addBtnCompact) addBtnCompact.classList.remove('hidden');
+            if (youtubeBtnCompact) youtubeBtnCompact.classList.remove('hidden');
         }
+    }
+
+    // YouTube URL Logic
+    function openYouTubeModal() {
+        youtubeModal.classList.remove('pointer-events-none', 'opacity-0');
+        youtubeModal.querySelector('div').classList.remove('scale-95');
+        youtubeModal.querySelector('div').classList.add('scale-100');
+        youtubeUrlInput.focus();
+    }
+
+    function closeYouTubeModal() {
+        youtubeModal.classList.add('pointer-events-none', 'opacity-0');
+        youtubeModal.querySelector('div').classList.remove('scale-100');
+        youtubeModal.querySelector('div').classList.add('scale-95');
+        youtubeUrlInput.value = '';
+    }
+
+    if (youtubeBtn) youtubeBtn.addEventListener('click', openYouTubeModal);
+    if (youtubeBtnCompact) youtubeBtnCompact.addEventListener('click', openYouTubeModal);
+    if (youtubeCancelBtn) youtubeCancelBtn.addEventListener('click', closeYouTubeModal);
+    if (youtubeModal) {
+        youtubeModal.addEventListener('click', (e) => {
+            if (e.target === youtubeModal) closeYouTubeModal();
+        });
+    }
+
+    if (youtubeConfirmBtn) {
+        youtubeConfirmBtn.addEventListener('click', async () => {
+            const url = youtubeUrlInput.value.trim();
+            if (!url) return;
+
+            youtubeConfirmBtn.disabled = true;
+            const btnText = youtubeConfirmBtn.querySelector('span:first-child');
+            const originalText = btnText.textContent;
+            btnText.textContent = '분석 중...';
+            
+            try {
+                const res = await eel.get_youtube_info(url)();
+                if (res.status === "success") {
+                    const fileObj = {
+                        id: 'yt_' + res.id,
+                        name: res.title,
+                        path: res.stream_url, // FFmpeg Input
+                        streamUrl: res.stream_url, // Player Input
+                        duration: res.duration,
+                        width: 1280, // Default for 720p fallback
+                        height: 720,
+                        size: 0, 
+                        fps: 30, // YouTube default assumption
+                        thumbnail: res.thumbnail,
+                        isYoutube: true,
+                        author: res.author,
+                        segments: [],
+                        draft: {
+                            id: `draft_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                            start: 0,
+                            end: res.duration || 0,
+                            fps: 24, 
+                            resolution: "중간 (720p)",
+                            numColors: 256,
+                            useDither: false,
+                            loopPlayback: true,
+                            aspectRatioLock: true,
+                            customWidth: 1280,
+                            customHeight: 720,
+                            status: 'idle',
+                            progress: 0
+                        },
+                        isBatchSync: false
+                    };
+                    
+                    if (!uploadedFiles.some(f => f.id === fileObj.id)) {
+                        uploadedFiles.push(fileObj);
+                        renderLibrary();
+                        updateLibraryEmptyState();
+                        selectVideo(fileObj);
+                    } else {
+                        updateStatus("이미 보관함에 있는 영상입니다.");
+                    }
+                    closeYouTubeModal();
+                } else {
+                    updateStatus(`오류: ${res.message}`);
+                }
+            } catch (err) {
+                console.error(err);
+                updateStatus("YouTube 정보를 가져오는데 실패했습니다.");
+            } finally {
+                youtubeConfirmBtn.disabled = false;
+                btnText.textContent = originalText;
+            }
+        });
     }
 
     function initDragAndDrop() {
@@ -1152,7 +1256,11 @@ document.addEventListener('DOMContentLoaded', () => {
         // 새 소스 로드
         setTimeout(() => {
             const timestamp = Date.now();
-            mainPlayer.src = `${fileObj.objectUrl}?t=${timestamp}`;
+            if (fileObj.isYoutube) {
+                mainPlayer.src = fileObj.streamUrl;
+            } else {
+                mainPlayer.src = `${fileObj.objectUrl}?t=${timestamp}`;
+            }
             mainPlayer.load();
             
             mainPlayer.classList.remove('hidden');
@@ -2194,13 +2302,25 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="flex items-center">
                         <input type="checkbox" class="lib-checkbox w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer" data-index="${index}" />
                     </div>
+                    <!-- Thumbnail for YouTube -->
+                    ${fileObj.isYoutube ? `
+                    <div class="w-12 h-8 rounded bg-slate-200 overflow-hidden flex-shrink-0 relative">
+                        <img src="${fileObj.thumbnail}" class="w-full h-full object-cover" />
+                        <div class="absolute inset-0 flex items-center justify-center bg-black/20">
+                            <span class="material-symbols-outlined text-white text-xs">play_circle</span>
+                        </div>
+                    </div>
+                    ` : ''}
                     <div class="flex-1 flex flex-col justify-center overflow-hidden">
-                        <span class="truncate font-semibold text-on-surface">${fileObj.name}</span>
+                        <div class="flex items-center gap-1 overflow-hidden">
+                            ${fileObj.isYoutube ? '<span class="material-symbols-outlined text-rose-500 text-sm">link</span>' : ''}
+                            <span class="truncate font-semibold text-on-surface">${fileObj.name}</span>
+                        </div>
                         <div class="flex items-center gap-2 mt-0.5 min-h-[20px]">
                             <div class="file-metadata flex items-center gap-2">
-                                <span class="text-xs text-slate-500 font-medium">${sizeMb} MB</span>
+                                <span class="text-xs text-slate-500 font-medium">${fileObj.isYoutube ? (fileObj.author || 'YouTube') : sizeMb + ' MB'}</span>
                                 <div class="flex items-center gap-1.5">
-                                    <span class="bg-slate-100 text-slate-500 px-1 py-0 rounded text-[9px] font-bold uppercase tracking-wider border border-slate-200/50 leading-tight">${format}</span>
+                                    <span class="bg-slate-100 text-slate-500 px-1 py-0 rounded text-[9px] font-bold uppercase tracking-wider border border-slate-200/50 leading-tight">${fileObj.isYoutube ? 'YT' : format}</span>
                                     <span class="proxy-badge bg-indigo-50 text-indigo-600 px-1 py-0 rounded text-[9px] font-black uppercase tracking-widest border border-indigo-100 leading-tight ${fileObj.proxyPath ? '' : 'hidden'}">Proxy</span>
                                 </div>
                             </div>

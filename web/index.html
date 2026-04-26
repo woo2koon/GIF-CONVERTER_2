@@ -244,10 +244,14 @@
                 <div class="flex items-center justify-between h-8 mb-2">
                     <div class="flex items-center gap-2">
                         <h2 class="text-on-surface-variant font-bold uppercase tracking-wider text-sm opacity-80 font-sans">파일 보관함</h2>
-                        <!-- Compact Add Button (Visible when library not empty) -->
-                        <button id="add-video-btn-compact" class="hidden flex items-center justify-center w-6 h-6 bg-indigo-100 text-indigo-600 rounded-full hover:bg-indigo-600 hover:text-white transition-all active:scale-90" title="파일 추가">
-                            <span class="material-symbols-outlined text-base">add</span>
-                        </button>
+                        <div class="flex items-center gap-1">
+                            <button id="add-youtube-btn-compact" class="hidden flex items-center justify-center w-6 h-6 bg-rose-100 text-rose-600 rounded-full hover:bg-rose-600 hover:text-white transition-all active:scale-90" title="YouTube 추가">
+                                <span class="material-symbols-outlined text-[14px]">link</span>
+                            </button>
+                            <button id="add-video-btn-compact" class="hidden flex items-center justify-center w-6 h-6 bg-indigo-100 text-indigo-600 rounded-full hover:bg-indigo-600 hover:text-white transition-all active:scale-90" title="파일 추가">
+                                <span class="material-symbols-outlined text-base">add</span>
+                            </button>
+                        </div>
                         <button id="open-settings-btn" class="flex items-center justify-center w-6 h-6 bg-slate-200 text-slate-500 rounded-full hover:bg-indigo-600 hover:text-white transition-all active:scale-90" title="설정">
                             <span class="material-symbols-outlined text-base">settings</span>
                         </button>
@@ -265,16 +269,22 @@
             <input type="file" id="video-upload" accept="video/mp4,video/*" class="hidden" multiple />
 
             <div id="library-list" class="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-3 pb-24 px-1">
-                <!-- Welcome/Empty State / Large Add Button -->
-                <button id="add-video-btn" class="flex-1 w-full bg-white hover:bg-indigo-50 text-indigo-600 border-2 border-dashed border-indigo-200 hover:border-indigo-400 rounded-2xl flex flex-col items-center justify-center gap-4 transition-all group active:scale-[0.98] min-h-[300px]">
-                    <div class="w-16 h-16 bg-indigo-50 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-                        <span class="material-symbols-outlined text-4xl">video_library</span>
-                    </div>
-                    <div class="text-center px-6">
-                        <p class="font-bold text-slate-700">비디오 파일 추가</p>
-                        <p id="add-video-subtext" class="text-xs text-slate-500 mt-2">이곳을 클릭하여 변환할<br>비디오를 추가하세요</p>
-                    </div>
-                </button>
+                <div class="flex flex-col gap-3 h-full">
+                    <button id="add-video-btn" class="flex-1 w-full bg-white hover:bg-indigo-50 text-indigo-600 border-2 border-dashed border-indigo-200 hover:border-indigo-400 rounded-2xl flex flex-col items-center justify-center gap-4 transition-all group active:scale-[0.98] min-h-[220px]">
+                        <div class="w-16 h-16 bg-indigo-50 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                            <span class="material-symbols-outlined text-4xl">video_library</span>
+                        </div>
+                        <div class="text-center px-6">
+                            <p class="font-bold text-slate-700">비디오 파일 추가</p>
+                            <p id="add-video-subtext" class="text-xs text-slate-500 mt-2">이곳을 클릭하여 변환할<br>비디오를 추가하세요</p>
+                        </div>
+                    </button>
+
+                    <button id="add-youtube-btn" class="w-full flex items-center justify-center gap-2 py-3 bg-white border border-slate-200 rounded-xl text-slate-600 hover:border-rose-300 hover:text-rose-600 hover:bg-rose-50 transition-all shadow-sm">
+                        <span class="material-symbols-outlined text-rose-500">link</span>
+                        <span class="text-sm font-bold">YouTube URL 추가</span>
+                    </button>
+                </div>
                 <!-- Files will be dynamically injected here -->
             </div>
 
@@ -732,6 +742,39 @@
                     <button id="settings-confirm-btn" class="px-6 py-2.5 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-md">
                         확인
                     </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- YouTube Modal -->
+    <div id="youtube-modal" class="fixed inset-0 z-[10000] flex items-center justify-center p-6 pointer-events-none opacity-0 transition-all duration-300">
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
+        <div class="relative bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden transform scale-95 transition-all duration-300">
+            <div class="p-8">
+                <div class="flex items-center gap-4 mb-6">
+                    <div class="w-12 h-12 bg-rose-100 rounded-2xl flex items-center justify-center">
+                        <span class="material-symbols-outlined text-rose-600 text-2xl">link</span>
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-bold text-slate-800">YouTube 주소 추가</h3>
+                        <p class="text-sm text-slate-500">영상 주소를 입력하여 바로 불러오세요</p>
+                    </div>
+                </div>
+                
+                <div class="space-y-4">
+                    <div class="relative group">
+                        <input type="text" id="youtube-url-input" 
+                            class="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 text-slate-800 placeholder:text-slate-400 focus:border-rose-500 focus:ring-0 transition-all outline-none"
+                            placeholder="https://www.youtube.com/watch?v=...">
+                    </div>
+                    
+                    <div class="flex gap-3 pt-2">
+                        <button id="youtube-cancel-btn" class="flex-1 px-6 py-4 rounded-2xl text-slate-600 font-bold hover:bg-slate-100 transition-all">취소</button>
+                        <button id="youtube-confirm-btn" class="flex-[2] bg-rose-500 hover:bg-rose-600 text-white px-6 py-4 rounded-2xl font-bold shadow-lg shadow-rose-200 transition-all active:scale-95 flex items-center justify-center gap-2">
+                            <span>불러오기</span>
+                            <span class="material-symbols-outlined text-xl">arrow_forward</span>
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
