@@ -48,47 +48,35 @@ def get_youtube_info(url):
             best_video = video_only_formats[0] if video_only_formats else (prog_formats[0] if prog_formats else (hls_formats[0] if hls_formats else None))
             best_audio = audio_only_formats[0] if audio_only_formats else None
             
-            # 재생용 포맷 결정 (사용자 요청: 미리보기는 최대 480p~720p 정도로 제한하여 성능 확보)
+            # --- 5. URL 결정 (재생용 vs 변환용) ---
+            player_url = None
+            # 변환용은 무조건 최고 화질
+            video_url = best_video.get('url') if best_video else info.get('url')
+
+            # 재생용(미리보기) 포맷 결정
             play_format = None
-            
-            # 1. 먼저 합쳐진 MP4(Progressive) 중 720p가 있는지 확인 (가장 빠름)
+            # 우선 480p~720p 사이의 합쳐진 파일(Progressive) 검색 (재생 안정성 높음)
             for f in prog_formats:
-                if f.get('height') == 720:
+                if 480 <= f.get('height', 0) <= 720:
                     play_format = f
                     break
             
-            # 2. 720p 합쳐진 파일이 없다면, 480p 합쳐진 파일이 있는지 확인
-            if not play_format:
-                for f in prog_formats:
-                    if f.get('height') == 480:
-                        play_format = f
-                        break
-            
-            # 3. 합쳐진 파일이 고화질이 없는 경우, 프록시 사용 (단, 미리보기 성능을 위해 480p로 제한)
-            proxy_video = None
-            if not play_format or play_format.get('height', 0) < 480:
-                # 480p 이하의 비디오 전용 포맷 중 가장 좋은 것 찾기
+            if play_format:
+                player_url = play_format.get('url')
+                print(f"[Backend] 미리보기용 직접 재생 포맷 선택: {play_format.get('height')}p")
+            else:
+                # 합쳐진 파일이 없으면 480p 이하의 비디오 전용 포맷 중 하나를 프록시로 선택
+                proxy_video = None
                 for f in video_only_formats:
-                    if f.get('height') <= 480:
+                    if f.get('height', 0) <= 480:
                         proxy_video = f
                         break
                 
                 if proxy_video:
-                    # 프록시용 정보 설정
-                    video_url = proxy_video.get('url')
-                    player_url = video_url # youtube.js에서 프록시 URL로 변환됨
+                    player_url = proxy_video.get('url')
                     print(f"[Backend] 미리보기 성능을 위해 480p 프록시 선택 ({proxy_video.get('format_id')})")
-                elif not play_format and prog_formats:
-                    play_format = prog_formats[0]
-            
-            if play_format:
-                player_url = play_format.get('url')
-                video_url = best_video.get('url') if best_video else player_url
-                print(f"[Backend] 직접 재생 포맷 선택: {play_format.get('height')}p")
-            elif not proxy_video:
-                # 최후의 수단
-                player_url = best_video.get('url') if best_video else info.get('url')
-                video_url = player_url
+                else:
+                    player_url = video_url # 최후의 수단
 
             width = info.get('width', 1280)
             height = info.get('height', 720)
@@ -106,8 +94,9 @@ def get_youtube_info(url):
             
             return {
                 "status": "success",
-                "id": info.get('id'),
+                "video_id": info.get('id'),
                 "title": info.get('title'),
+                "url": info.get('url'),
                 "duration": info.get('duration'),
                 "width": width,
                 "height": height,

@@ -9,6 +9,13 @@ async function handleYoutubeUrl() {
         return;
     }
 
+    // 유튜브 URL 유효성 검사 추가
+    const youtubePattern = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/;
+    if (!youtubePattern.test(url)) {
+        showToast('올바른 주소가 아닙니다');
+        return;
+    }
+
     const youtubeModal = document.getElementById('youtube-modal');
     const confirmBtn = document.getElementById('youtube-confirm-btn');
     
@@ -52,6 +59,7 @@ async function handleYoutubeUrl() {
 
         const fileObj = {
             id: fileId,
+            videoId: info.video_id,
             name: info.title,
             path: info.video_url,         // 변환용 고화질 비디오
             audioUrl: info.audio_url,      // 변환용 오디오
@@ -93,4 +101,40 @@ async function handleYoutubeUrl() {
         console.error(err);
     }
     setTimeout(() => updateStatus(""), 3000);
+}
+
+// 유튜브 입력 UI 초기화
+function initYoutubeUI() {
+    const urlInput = document.getElementById('youtube-url-input');
+    if (!urlInput) return;
+
+    // 우클릭 시 자동 붙여넣기 기능
+    urlInput.addEventListener('contextmenu', async (e) => {
+        e.preventDefault(); // 기본 메뉴 차단
+        
+        try {
+            // 파이썬 백엔드를 통해 클립보드 텍스트 읽기 (브라우저 보안 제약 우회)
+            const text = await eel.get_clipboard_text()();
+            
+            if (text && (text.includes('youtube.com') || text.includes('youtu.be'))) {
+                urlInput.value = text.trim();
+                console.log("[JS] 유튜브 주소 자동 붙여넣기 완료:", urlInput.value);
+                
+                // 자동으로 영상 불러오기 실행
+                handleYoutubeUrl();
+            } else {
+                showToast('올바른 주소가 아닙니다');
+                console.warn("[JS] 클립보드에 유효한 유튜브 주소가 없습니다.");
+            }
+        } catch (err) {
+            console.error("[JS] 클립보드 읽기 실패:", err);
+        }
+    });
+}
+
+// 초기화 실행
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initYoutubeUI);
+} else {
+    initYoutubeUI();
 }

@@ -36,6 +36,20 @@ def get_os_info():
     return fetch_os_info()
 
 @eel.expose
+def get_clipboard_text():
+    """시스템 클립보드 텍스트를 읽어옵니다."""
+    try:
+        import tkinter as tk
+        root = tk.Tk()
+        root.withdraw() # 창 숨기기
+        text = root.clipboard_get()
+        root.destroy()
+        return text
+    except Exception as e:
+        print(f"[PY] 클립보드 읽기 실패: {e}")
+        return ""
+
+@eel.expose
 def get_youtube_info(url):
     return fetch_youtube_info(url)
 
@@ -229,7 +243,7 @@ if __name__ == '__main__':
             t.start()
             
             time.sleep(1)
-            window = webview.create_window('GIF Converter', 'http://127.0.0.1:8889', width=1280, height=850)
+            window = webview.create_window('GIF Converter', 'http://127.0.0.1:8889', width=1280, height=850, zoomable=False)
             _webview_window = window 
             
             def on_drop(e):

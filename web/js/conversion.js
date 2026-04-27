@@ -340,7 +340,12 @@ async function processConversionQueue() {
         const startTime = seg.start;
         const endTime = seg.end;
         const fps = seg.fps || 24;
-        const resolution = seg.resolution || "중간 (720p)";
+        let resolution = seg.resolution || "중간 (720p)";
+        if (resolution === "직접 설정" && seg.customWidth && seg.customHeight) {
+            resolution = `${seg.customWidth}:${seg.customHeight}`;
+        } else if (resolution === "원본") {
+            resolution = "original";
+        }
         const numColors = seg.numColors || 256;
         const useDither = seg.useDither !== undefined ? seg.useDither : false;
         const loopPlayback = seg.loopPlayback !== undefined ? seg.loopPlayback : true;

@@ -12,6 +12,7 @@
     <link href='https://spoqa.github.io/spoqa-han-sans/css/SpoqaHanSansNeo.css' rel='stylesheet' type='text/css'>
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
         rel="stylesheet" />
+    <script src="https://www.youtube.com/iframe_api"></script>
     <script type="text/javascript" src="/eel.js"></script>
     <script id="tailwind-config">
         tailwind.config = {
@@ -97,17 +98,29 @@
             backdrop-filter: blur(20px);
         }
 
+        .custom-scrollbar {
+            scrollbar-width: auto;
+            scrollbar-color: #4340e6 #e5e7eb;
+        }
+
         .custom-scrollbar::-webkit-scrollbar {
-            width: 4px;
+            height: 10px; /* 가로 스크롤바 두께 */
+            width: 10px;
         }
 
         .custom-scrollbar::-webkit-scrollbar-track {
-            background: transparent;
+            background: #f1f5f9; /* Slate 100 - 확실히 보이는 밝은 배경 */
+            border-radius: 5px;
         }
 
         .custom-scrollbar::-webkit-scrollbar-thumb {
-            background: #d9dde0;
-            border-radius: 10px;
+            background: #4340e6; /* 고유 테마 컬러 */
+            border-radius: 5px;
+            border: 2px solid #f1f5f9; /* 트랙과 같은 색의 테두리로 간격 효과 */
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #362fdb;
         }
 
         /* Material Symbols Ligature Flash Fix */
@@ -290,14 +303,14 @@
                     <div class="flex items-center gap-2">
                         <h2 class="text-on-surface-variant font-bold uppercase tracking-wider text-sm opacity-80 font-sans">파일 보관함</h2>
                         <div class="flex items-center gap-1">
+                            <button id="add-video-btn-compact" class="hidden flex items-center justify-center w-6 h-6 bg-indigo-100 text-indigo-600 rounded-full hover:bg-indigo-600 hover:text-white transition-all active:scale-90" title="파일 추가">
+                                <span class="material-symbols-outlined text-base">add</span>
+                            </button>
                             <button id="add-youtube-btn-compact" class="hidden flex items-center justify-center w-6 h-6 bg-white text-rose-600 rounded-full hover:bg-rose-600 hover:text-white border border-slate-200 transition-all active:scale-90 overflow-hidden group/yt" title="YouTube 추가">
                                 <svg viewBox="0 0 28 20" width="14" height="10" xmlns="http://www.w3.org/2000/svg">
                                     <path d="M27.4 3.1a3.5 3.5 0 0 0-2.5-2.5C22.8 0 14 0 14 0S5.2 0 3.1.6A3.5 3.5 0 0 0 .6 3.1C0 5.2 0 9.6 0 9.6s0 4.4.6 6.5a3.5 3.5 0 0 0 2.5 2.5C5.2 19.2 14 19.2 14 19.2s8.8 0 10.9-.6a3.5 3.5 0 0 0 2.5-2.5c.6-2.1.6-6.5.6-6.5s0-4.4-.6-6.5z" fill="currentColor"/>
                                     <path d="M11.2 13.7V5.5l7.2 4.1-7.2 4.1z" class="fill-white group-hover/yt:fill-rose-600 transition-colors"/>
                                 </svg>
-                            </button>
-                            <button id="add-video-btn-compact" class="hidden flex items-center justify-center w-6 h-6 bg-indigo-100 text-indigo-600 rounded-full hover:bg-indigo-600 hover:text-white transition-all active:scale-90" title="파일 추가">
-                                <span class="material-symbols-outlined text-base">add</span>
                             </button>
                         </div>
                         <button id="open-settings-btn" class="flex items-center justify-center w-6 h-6 bg-slate-200 text-slate-500 rounded-full hover:bg-indigo-600 hover:text-white transition-all active:scale-90" title="설정">
@@ -352,31 +365,47 @@
         </aside>
         <!-- Center Column: Preview Player -->
         <main class="flex-1 bg-surface flex flex-col p-6 overflow-hidden">
-            <div class="flex items-center justify-between mb-4">
-                <div>
+            <div class="flex items-center justify-between items-start mb-5 gap-4">
+                <div class="flex-1 min-w-0">
                     <h1 id="header-filename"
-                        class="font-sans text-2xl font-extrabold tracking-tight text-on-surface truncate max-w-[400px]">
+                        class="font-sans text-2xl font-extrabold tracking-tight text-on-surface truncate">
                         파일을 선택해주세요</h1>
-                    <p id="header-resolution" class="text-on-surface-variant text-sm">영상 정보가 여기에 표시됩니다</p>
+                    <p id="header-resolution" class="text-on-surface-variant text-sm flex items-center gap-2 mt-1">
+                        <span id="header-resolution-text">영상 정보가 여기에 표시됩니다</span>
+                    </p>
                 </div>
             </div>
 
             <!-- Modern Video Player Area -->
-            <div class="flex-1 flex flex-col items-center justify-center">
-                <div id="video-container" class="flex-1 min-h-0 w-full aspect-video bg-black rounded-xl shadow-2xl overflow-hidden relative group flex items-center justify-center">
+            <div class="flex-1 flex flex-col items-center justify-center min-h-0">
+                <div id="video-container" class="flex-1 min-h-0 w-full bg-black rounded-xl shadow-2xl overflow-hidden relative group flex items-center justify-center">
                     <video id="main-player" class="w-full h-full object-contain hidden" playsinline
                         webkit-playsinline disablePictureInPicture></video>
-                    <div id="placeholder-msg" class="absolute inset-0 flex items-center justify-center text-on-surface-variant font-medium text-white">비디오를 선택하거나 업로드하세요
-                    </div>
-                    <div id="proxy-badge" class="absolute top-4 left-4 bg-[#2d2d2d]/80 text-white text-[10px] font-bold px-2.5 py-1 rounded-md tracking-[0.15em] hidden select-none shadow-lg shadow-black/20 z-[25]">
+                    
+                    <div id="proxy-badge" class="absolute top-4 left-4 hidden bg-slate-800/80 text-white text-[10px] font-black px-2 py-1 rounded shadow-lg shadow-black/40 z-[26] tracking-wider uppercase select-none">
                         PROXY PREVIEW
+                    </div>
+                    
+                    <!-- YouTube Player Container -->
+                    <div id="yt-player-container" class="absolute inset-0 w-full h-full hidden bg-black overflow-hidden">
+                        <div id="yt-player" class="w-full h-full"></div>
+                        <!-- Shield to prevent hover UI -->
+                        <div id="yt-shield" class="absolute inset-0 z-10 cursor-pointer bg-white/0"></div>
+                    </div>
+
+                    <div id="placeholder-msg" class="absolute inset-0 flex items-center justify-center text-on-surface-variant font-medium text-white">비디오를 선택하거나 업로드하세요
                     </div>
 
                     <!-- Crop Overlay -->
-                    <div id="crop-overlay" class="absolute inset-0 z-10 hidden" style="cursor: crosshair;">
+                    <div id="crop-overlay" class="absolute inset-0 z-[100] hidden" style="cursor: crosshair;">
                         <div id="crop-box" class="absolute border-2 border-rose-500 flex items-center justify-center hidden" style="box-shadow: 0 0 0 9999px rgba(0,0,0,0.6);">
                             <!-- Center move area (Background) -->
                             <div class="absolute inset-0 cursor-move" data-handle="move"></div>
+
+                            <!-- Pixel Display Badge -->
+                            <div id="crop-pixel-display" class="absolute -top-6 left-0 bg-rose-600 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-lg pointer-events-none whitespace-nowrap">
+                                1280 x 720
+                            </div>
 
                             <!-- Edge Handles (Full Length) -->
                             <div class="crop-handle absolute -top-1 left-0 right-0 h-2 cursor-ns-resize z-20 hover:bg-rose-500/20 transition-colors" data-handle="t"></div>
@@ -407,7 +436,7 @@
                 </div>
 
                 <!-- Professional Player Controls -->
-                <div id="player-controls" class="w-full mt-4 flex items-center justify-between px-4 py-3 bg-surface-container-high rounded-xl border border-white/20 shadow-sm" style="will-change: transform; backface-visibility: hidden;">
+                <div id="player-controls" class="w-full mt-4 flex shrink-0 items-center justify-between px-4 py-3 bg-surface-container-high rounded-xl border border-white/20 shadow-sm" style="will-change: transform; backface-visibility: hidden;">
                     <div class="flex items-center gap-4">
                         <div class="flex items-center bg-slate-200/50 rounded-lg p-1">
                             <button id="step-back-btn" class="w-8 h-8 flex items-center justify-center hover:bg-white rounded transition-all text-on-surface-variant">
@@ -440,59 +469,79 @@
                 </div>
 
                 <!-- Timeline Scrubber Section -->
-                <div id="timeline-area" class="w-full mt-3 bg-surface-container-low p-6 rounded-xl">
-                    <div class="flex justify-between items-center mb-4">
-                        <div class="flex items-center gap-4">
-                            <span class="text-sm font-bold text-on-surface-variant font-sans">타임라인 구간 자르기</span>
-                            <button id="trim-reset-btn"
-                                class="text-xs bg-slate-200 hover:bg-slate-300 px-2 py-1 rounded font-bold transition-colors">초기화</button>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <button id="add-segment-btn" class="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-sm transition-all mr-2">
-                                <span class="material-symbols-outlined text-[16px]">add_circle</span>
-                                대기열 추가
-                            </button>
-                            <div class="flex gap-3 text-xs font-bold text-indigo-600">
-                                <span class="bg-indigo-600/10 px-2 py-1 rounded" id="trim-start-display">시작: 00:00:00</span>
-                                <span class="bg-indigo-600/10 px-2 py-1 rounded" id="trim-end-display">종료: 00:00:00</span>
+                <div id="timeline-area" class="w-full mt-3 shrink-0 bg-surface-container py-6 rounded-xl overflow-hidden">
+                    
+                    <div style="padding-left: 24px; padding-right: 24px;" class="space-y-5">
+                        <!-- Row 1: Title -->
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <h2 class="text-[16px] font-bold text-slate-800">구간 자르기</h2>
+                                <button id="reset-trim-btn" class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-md text-[11px] font-medium transition-colors border border-slate-200">초기화</button>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- Premium Timeline Scrubber -->
-                    <div id="timeline-container" class="w-full mt-2">
-                        <div class="relative h-5 select-none cursor-default" id="timeline-track">
-                            <!-- Inner Track (Clipped background and masks) -->
-                            <div class="absolute inset-0 bg-slate-200 rounded-md overflow-hidden pointer-events-none">
-                                <!-- Ghost Markers (already added segments) -->
-                                <div id="ghost-markers-container" class="absolute inset-0 z-[15] pointer-events-none"></div>
-                                
-                                <!-- Left Mask: area BEFORE IN point (dimmed) -->
-                                <div id="mask-left" class="absolute left-0 h-full bg-black/25 z-10 pointer-events-none"></div>
-                                
-                                <!-- Right Mask: area AFTER OUT point (dimmed) -->
-                                <div id="mask-right" class="absolute right-0 h-full bg-black/25 z-10 pointer-events-none"></div>
-                                
-                                <!-- Selected Range (no fill needed, masks handle it) -->
-                                <div id="trim-range" class="absolute h-full z-10 pointer-events-none"></div>
+                        <!-- Row 2: Controls (Perfect Centering & Alignment) -->
+                        <div id="controls-container" class="grid grid-cols-[1fr_auto_1fr] items-center" style="margin-left: -12px; margin-right: -12px; width: calc(100% + 24px); padding-left: 12px; padding-right: 12px;">
+                            <!-- Left: Add Segment Button -->
+                            <div class="flex justify-start">
+                                <button id="add-segment-btn" class="h-[38px] flex items-center gap-2 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[12px] font-bold shadow-lg shadow-indigo-100 transition-all whitespace-nowrap active:scale-95 border-none outline-none" style="margin-left: -5px;">
+                                    <span class="material-symbols-outlined text-[18px]">add_circle</span>
+                                    대기열 추가
+                                </button>
                             </div>
                             
-                            <!-- Handles (Enhanced Hit Area - Slimmer Look) -->
-                            <div id="handle-left" class="absolute h-full w-6 cursor-ew-resize z-30 flex items-center justify-center -translate-x-1/2 group">
-                                <div class="w-0.5 h-full bg-indigo-600 shadow-[0_0_8px_rgba(79,70,229,0.3)] group-hover:bg-indigo-400 transition-colors"></div>
-                                <div class="absolute w-[1px] h-3 bg-white/30 rounded-full"></div>
+                            <!-- Center: Timecodes (Fixed Width, Always Centered) -->
+                            <div class="flex items-center justify-center gap-2 text-[11px] font-bold font-sans">
+                                <div class="h-[38px] w-[110px] shrink-0 flex items-center justify-center bg-indigo-50/80 text-indigo-700 rounded-xl border border-indigo-100 shadow-sm whitespace-nowrap" id="trim-start-display">시작: 00:00:00</div>
+                                <div class="h-[38px] w-[110px] shrink-0 flex items-center justify-center bg-rose-50/80 text-rose-600 rounded-xl border border-rose-100 shadow-sm whitespace-nowrap" id="trim-end-display">종료: 00:00:00</div>
                             </div>
-                            <div id="handle-right" class="absolute h-full w-6 cursor-ew-resize z-30 flex items-center justify-center -translate-x-1/2 group">
-                                <div class="w-0.5 h-full bg-indigo-600 shadow-[0_0_8px_rgba(79,70,229,0.3)] group-hover:bg-indigo-400 transition-colors"></div>
-                                <div class="absolute w-[1px] h-3 bg-white/30 rounded-full"></div>
+
+                            <!-- Right: Zoom Slider -->
+                            <div class="flex justify-end">
+                                <div class="h-[38px] flex items-center gap-1.5 bg-white px-2 rounded-xl border border-slate-200 shadow-sm" style="margin-right: -5px;">
+                                    <span class="material-symbols-outlined text-[18px] text-slate-400 select-none">zoom_in</span>
+                                    <input id="timeline-zoom-slider" type="range" min="1" max="10" step="0.1" value="1"
+                                        class="w-20 h-1 rounded-full appearance-none cursor-pointer accent-indigo-600 bg-slate-100" />
+                                </div>
                             </div>
-                            
-                            <!-- Playhead (Full Handle - Easy Grab) -->
-                            <div id="playhead-handle" class="absolute h-full w-4 z-20 pointer-events-auto -translate-x-1/2" style="left: 0; will-change: transform;">
-                                <!-- Visible Line -->
-                                <div class="absolute inset-y-0 left-1/2 -translate-x-1/2 w-0.5 bg-rose-500"></div>
-                                <!-- Professional Pentagon Head (Compact) -->
-                                <div class="absolute -top-3 left-1/2 -translate-x-1/2 w-2.5 h-3 bg-rose-500 shadow-sm" style="clip-path: polygon(0% 0%, 100% 0%, 100% 65%, 50% 100%, 0% 65%);"></div>
+                        </div>
+
+                        <!-- Row 3: Timeline -->
+                        <div id="timeline-container" class="w-full" style="margin-left: -12px; margin-right: -12px; width: calc(100% + 24px);">
+                            <!-- Internal padding to prevent playhead clipping -->
+                            <div id="timeline-scroll-container" class="w-full relative overflow-x-auto overflow-y-hidden custom-scrollbar rounded-xl py-3" style="padding-left: 12px; padding-right: 12px;">
+                                <div class="relative h-6 select-none cursor-default min-w-full" id="timeline-track" style="width: 100%;">
+                                    <!-- Inner Track (Clipped background and masks) -->
+                                    <div class="absolute inset-0 bg-slate-400 overflow-hidden pointer-events-none" style="border-radius: 1px;">
+                                        <!-- Ghost Markers (already added segments) -->
+                                        <div id="ghost-markers-container" class="absolute inset-0 z-[15] pointer-events-none"></div>
+                                        
+                                        <!-- Left Mask: area BEFORE IN point (dimmed) -->
+                                        <div id="mask-left" class="absolute left-0 h-full bg-black/40 z-10 pointer-events-none"></div>
+                                        
+                                        <!-- Right Mask: area AFTER OUT point (dimmed) -->
+                                        <div id="mask-right" class="absolute right-0 h-full bg-black/40 z-10 pointer-events-none"></div>
+                                        
+                                    </div>
+                                    
+                                    <!-- Handles (Enhanced Hit Area - Slimmer Look) -->
+                                    <div id="handle-left" class="absolute h-full w-6 cursor-ew-resize z-30 flex items-center justify-center -translate-x-1/2 group">
+                                        <div class="w-0.5 h-full bg-indigo-600 shadow-[0_0_8px_rgba(79,70,229,0.3)] group-hover:bg-indigo-400 transition-colors"></div>
+                                        <div class="absolute w-[1px] h-3 bg-white/30 rounded-full"></div>
+                                    </div>
+                                    <div id="handle-right" class="absolute h-full w-6 cursor-ew-resize z-30 flex items-center justify-center -translate-x-1/2 group">
+                                        <div class="w-0.5 h-full bg-indigo-600 shadow-[0_0_8px_rgba(79,70,229,0.3)] group-hover:bg-indigo-400 transition-colors"></div>
+                                        <div class="absolute w-[1px] h-3 bg-white/30 rounded-full"></div>
+                                    </div>
+                                    
+                                    <!-- Playhead (Full Handle - Easy Grab) -->
+                                    <div id="playhead-handle" class="absolute h-full w-4 z-20 pointer-events-auto -translate-x-1/2" style="left: 0; will-change: transform;">
+                                        <!-- Visible Line -->
+                                        <div class="absolute inset-y-0 left-1/2 -translate-x-1/2 w-0.5 bg-rose-500"></div>
+                                        <!-- Professional Pentagon Head (Compact) -->
+                                        <div class="absolute -top-3 left-1/2 -translate-x-1/2 w-2.5 h-3 bg-rose-500 shadow-sm" style="clip-path: polygon(0% 0%, 100% 0%, 100% 65%, 50% 100%, 0% 65%);"></div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -756,6 +805,9 @@
             </div>
         </div>
     </div>
+    
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="fixed top-10 left-1/2 -translate-x-1/2 z-[11000] flex flex-col gap-3 pointer-events-none"></div>
 
     <script src="js/state.js"></script>
     <script src="js/utils.js"></script>

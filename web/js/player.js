@@ -5,8 +5,18 @@ function selectVideo(fileObj) {
     if (!fileObj) {
         window.selectedFileObj = null;
         window.selectedSegmentObj = null;
+        
+        // 유튜브 플레이어 정지 및 컨테이너 숨김
+        if (window.isYTReady && window.ytPlayer) {
+            window.ytPlayer.pauseVideo();
+        }
+        const ytContainer = document.getElementById('yt-player-container');
+        if (ytContainer) ytContainer.classList.add('hidden');
+        
         mainPlayer.src = "";
+        mainPlayer.classList.add('hidden');
         placeholderMsg.classList.remove('hidden');
+        
         document.getElementById('header-filename').textContent = "파일을 선택해주세요";
         document.getElementById('header-resolution').textContent = "영상 정보가 여기에 표시됩니다";
         
@@ -20,7 +30,21 @@ function selectVideo(fileObj) {
         const cropControlsContainer = document.getElementById('crop-controls-container');
         if (cropControlsContainer) cropControlsContainer.classList.add('hidden');
         updateCropUI();
+        
         return;
+    }
+
+    // 타임라인 줌 및 스크롤 초기화
+    window.timelineZoom = 1;
+    const zoomSlider = document.getElementById('timeline-zoom-slider');
+    const timelineTrack = document.getElementById('timeline-track');
+    const scrollContainer = document.getElementById('timeline-scroll-container');
+    
+    if (zoomSlider) zoomSlider.value = 1;
+    if (timelineTrack) timelineTrack.style.width = '100%';
+    if (scrollContainer) {
+        scrollContainer.style.overflowX = 'hidden';
+        scrollContainer.scrollLeft = 0;
     }
 
     const isSameFile = (window.selectedFileObj && window.selectedFileObj.id === fileObj.id);
@@ -39,8 +63,13 @@ function selectVideo(fileObj) {
         updateTimelineUI();
         updateCropOverlaySize();
         if (window.selectedSegmentObj) {
-            mainPlayer.currentTime = window.selectedSegmentObj.start;
-            updatePlayheadUI(window.selectedSegmentObj.start);
+            const startTime = window.selectedSegmentObj.start;
+            if (fileObj.isYoutube && window.ytPlayer && window.ytPlayer.seekTo) {
+                window.ytPlayer.seekTo(startTime, true);
+            } else if (mainPlayer) {
+                mainPlayer.currentTime = startTime;
+            }
+            updatePlayheadUI(startTime);
         }
         return;
     }
@@ -60,81 +89,90 @@ function selectVideo(fileObj) {
 
 
     document.getElementById('header-resolution').textContent = "로딩 중...";
-    mainPlayer.pause();
+    const ytContainer = document.getElementById('yt-player-container');
     
-    // Attach listener BEFORE setting src
-    mainPlayer.onloadeddata = () => {
-        updateTimelineUI();
-        updateCropOverlaySize(); // Match crop overlay to actual video area
-        
-        if (window.selectedSegmentObj) {
-            mainPlayer.currentTime = window.selectedSegmentObj.start;
-            updatePlayheadUI(window.selectedSegmentObj.start);
-        }
-        
-        document.getElementById('total-time-display').textContent = formatTime(fileObj.duration);
-        
-        // 상세 파일 정보 표시: 1280×720 • WEBM • 03:25:49 • 59.94 FPS
-        const ext = fileObj.isYoutube ? 'YT' : (fileObj.name.split('.').pop() || '').toUpperCase();
-        const totalSec = Math.floor(fileObj.duration);
-        const hh = String(Math.floor(totalSec / 3600)).padStart(2, '0');
-        const mm = String(Math.floor((totalSec % 3600) / 60)).padStart(2, '0');
-        const ss = String(totalSec % 60).padStart(2, '0');
-        const durationStr = `${hh}:${mm}:${ss}`;
-        const fpsStr = Number.isInteger(fileObj.fps) ? `${fileObj.fps}` : fileObj.fps.toFixed(2);
-        const resStr = fileObj.isYoutube
-            ? `${fileObj.width}×${fileObj.height} (원본)`
-            : `${fileObj.width}×${fileObj.height}`;
-        document.getElementById('header-resolution').textContent =
-            `${resStr} • ${ext} • ${durationStr} • ${fpsStr} FPS`;
-
-        syncUIToFile(fileObj);
-        
-        const overlay = document.getElementById('proxy-overlay');
-        if (fileObj.isProxying) {
-            if (overlay) overlay.classList.remove('hidden');
-        } else {
-            if (overlay) overlay.classList.add('hidden');
-        }
-
-        const pBadge = document.getElementById('proxy-badge');
-        if (fileObj.isYoutube) {
-            // YouTube: 재생 해상도 배지 표시
-            if (pBadge) {
-                const previewLabel = fileObj.previewHeight ? `${fileObj.previewHeight}P PREVIEW` : 'PREVIEW';
-                pBadge.textContent = previewLabel;
-                pBadge.classList.remove('hidden');
-            }
-        } else if (fileObj.proxyPath) {
-            // 일반 영상: 프록시 배지 표시
-            if (pBadge) {
-                pBadge.textContent = 'PROXY PREVIEW';
-                pBadge.classList.remove('hidden');
-            }
-            if (!fileObj.proxyStatusShown) {
-                updateStatus("미리보기 준비 완료 (프록시)");
-                fileObj.proxyStatusShown = true;
-                setTimeout(() => updateStatus(""), 3000);
-            }
-        } else {
-            if (pBadge) pBadge.classList.add('hidden');
-        }
-    };
-
-    mainPlayer.onerror = (e) => {
-        console.error("Video load error:", e);
-        document.getElementById('header-resolution').textContent = "영상 정보가 여기에 표시됩니다";
-    };
-
-    const timestamp = Date.now();
+    // 플레이어 스위칭
     if (fileObj.isYoutube) {
-        mainPlayer.src = fileObj.streamUrl;
+        mainPlayer.pause();
+        mainPlayer.classList.add('hidden');
+        ytContainer.classList.remove('hidden');
+        
+        if (window.isYTReady && window.ytPlayer) {
+            window.ytPlayer.cueVideoById({
+                videoId: fileObj.videoId,
+                startSeconds: window.selectedSegmentObj ? window.selectedSegmentObj.start : 0,
+                suggestedQuality: 'hd720'
+            });
+        }
+        
+        // YouTube 정보 표시 (IFrame API는 비동기로 로드되므로 메타데이터 수동 설정)
+        setTimeout(() => {
+            updateTimelineUI();
+            updateCropOverlaySize();
+            document.getElementById('total-time-display').textContent = formatTime(fileObj.duration);
+            
+            const totalSec = Math.floor(fileObj.duration);
+            const durationStr = formatTime(totalSec);
+            const resStr = `${fileObj.width}×${fileObj.height} (YouTube)`;
+            document.getElementById('header-resolution').textContent =
+                `${resStr} • YT • ${durationStr} • ${fileObj.fps.toFixed(2)} FPS`;
+
+            syncUIToFile(fileObj);
+            
+            const pBadge = document.getElementById('proxy-badge');
+            if (pBadge) {
+                pBadge.classList.add('hidden');
+            }
+        }, 500);
+
     } else {
+        // 로컬 비디오
+        if (window.isYTReady && window.ytPlayer) {
+            window.ytPlayer.pauseVideo();
+        }
+        ytContainer.classList.add('hidden');
+        mainPlayer.classList.remove('hidden');
+
+        mainPlayer.onloadeddata = () => {
+            updateTimelineUI();
+            updateCropOverlaySize();
+            
+            if (window.selectedSegmentObj) {
+                mainPlayer.currentTime = window.selectedSegmentObj.start;
+                updatePlayheadUI(window.selectedSegmentObj.start);
+            }
+            
+            document.getElementById('total-time-display').textContent = formatTime(fileObj.duration);
+            
+            const resStr = `${fileObj.width}×${fileObj.height}`;
+            const ext = (fileObj.name.split('.').pop() || '').toUpperCase();
+            const durationStr = formatTime(fileObj.duration);
+            const headerResText = document.getElementById('header-resolution-text');
+            if (headerResText) {
+                headerResText.textContent = `${resStr} • ${ext} • ${durationStr} • ${fileObj.fps.toFixed(2)} FPS`;
+            } else {
+                document.getElementById('header-resolution').textContent =
+                    `${resStr} • ${ext} • ${durationStr} • ${fileObj.fps.toFixed(2)} FPS`;
+            }
+
+            syncUIToFile(fileObj);
+            
+            const pBadge = document.getElementById('proxy-badge');
+            if (fileObj.proxyPath) {
+                if (pBadge) {
+                    pBadge.textContent = 'PROXY PREVIEW';
+                    pBadge.classList.remove('hidden');
+                }
+            } else {
+                if (pBadge) pBadge.classList.add('hidden');
+            }
+        };
+
+        const timestamp = Date.now();
         mainPlayer.src = `${fileObj.objectUrl}?t=${timestamp}`;
+        mainPlayer.load();
     }
-    mainPlayer.load();
     
-    mainPlayer.classList.remove('hidden');
     placeholderMsg.classList.add('hidden');
     const tArea = document.getElementById('timeline-area');
     if (tArea) tArea.classList.remove('hidden');
@@ -152,75 +190,77 @@ function initPlayerEvents() {
     let syncAnimationFrame = null;
 
     function updateSync() {
-        if (!mainPlayer.paused && !mainPlayer.ended) {
-            // Loop logic for segment preview
+        if (!window.selectedFileObj) return;
+
+        let isPaused, currentTime;
+        if (window.selectedFileObj.isYoutube) {
+            isPaused = window.ytPlayer.getPlayerState() !== YT.PlayerState.PLAYING;
+            currentTime = window.ytPlayer.getCurrentTime();
+        } else {
+            isPaused = mainPlayer.paused;
+            currentTime = mainPlayer.currentTime;
+        }
+
+        if (!isPaused) {
             if (window.selectedSegmentObj) {
                 const inPoint = window.selectedSegmentObj.start;
                 const outPoint = window.selectedSegmentObj.end;
                 
-                const isProxy = window.selectedFileObj.isYoutube && window.selectedFileObj.streamUrl.includes('/yt_proxy');
-                const absTime = isProxy ? (window.proxyStartTime + mainPlayer.currentTime) : mainPlayer.currentTime;
-                
-                // If we passed the out point, jump back to in point
-                if (absTime >= outPoint) {
-                    if (isProxy) {
-                        window.proxyStartTime = inPoint;
-                        const baseSrc = window.selectedFileObj.streamUrl.split('&ss=')[0];
-                        mainPlayer.src = `${baseSrc}&ss=${inPoint}`;
-                        mainPlayer.load();
-                        mainPlayer.play().catch(() => {});
+                if (currentTime >= outPoint) {
+                    if (window.selectedFileObj.isYoutube) {
+                        window.ytPlayer.seekTo(inPoint, true);
                     } else {
                         mainPlayer.currentTime = inPoint;
                     }
                 }
             }
             
-            updatePlayheadUI(); // Update playhead on timeline
+            updatePlayheadUI();
             syncAnimationFrame = requestAnimationFrame(updateSync);
         }
     }
 
     mainPlayer.addEventListener('play', () => {
-        playIcon.textContent = 'pause';
-        if (!syncAnimationFrame) {
-            syncAnimationFrame = requestAnimationFrame(updateSync);
+        if (window.selectedFileObj && !window.selectedFileObj.isYoutube) {
+            playIcon.textContent = 'pause';
+            if (!syncAnimationFrame) syncAnimationFrame = requestAnimationFrame(updateSync);
         }
     });
 
     mainPlayer.addEventListener('pause', () => {
-        playIcon.textContent = 'play_arrow';
-        if (syncAnimationFrame) {
-            cancelAnimationFrame(syncAnimationFrame);
-            syncAnimationFrame = null;
-        }
-        updatePlayheadUI();
-    });
-
-    mainPlayer.addEventListener('ended', () => {
-        // If we reach the end of the video, check if we should loop back to in-point
-        if (window.selectedSegmentObj) {
-            mainPlayer.currentTime = window.selectedSegmentObj.start;
-            mainPlayer.play();
-        } else {
+        if (window.selectedFileObj && !window.selectedFileObj.isYoutube) {
             playIcon.textContent = 'play_arrow';
-        }
-        if (syncAnimationFrame) {
-            cancelAnimationFrame(syncAnimationFrame);
-            syncAnimationFrame = null;
-        }
-    });
-
-    mainPlayer.addEventListener('timeupdate', () => {
-        if (mainPlayer.paused) {
+            if (syncAnimationFrame) {
+                cancelAnimationFrame(syncAnimationFrame);
+                syncAnimationFrame = null;
+            }
             updatePlayheadUI();
         }
     });
-    
-    mainPlayer.addEventListener('click', togglePlayPause);
+
+    // YouTube state changes are handled in onPlayerStateChange
+
+    // Global click listener for play/pause toggle
+    const videoContainer = document.getElementById('video-container');
+    const ytShield = document.getElementById('yt-shield');
+
+    if (ytShield) {
+        ytShield.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            togglePlayPause();
+        });
+    }
+
+    videoContainer.addEventListener('click', (e) => {
+        if (window.isCropMode) return; // Ignore clicks during crop mode
+        if (e.target.closest('#yt-player')) return;
+        if (e.target.closest('#yt-shield')) return; // Already handled above
+        togglePlayPause();
+    });
     
     if (playPauseBtn) {
         playPauseBtn.addEventListener('click', (e) => {
-            console.log("[JS] Play button clicked");
             e.preventDefault();
             e.stopPropagation();
             togglePlayPause();
@@ -233,8 +273,14 @@ function initPlayerEvents() {
     if (stepBackBtn) {
         stepBackBtn.addEventListener('click', () => {
             if (!window.selectedFileObj) return;
-            mainPlayer.pause();
-            mainPlayer.currentTime = Math.max(0, mainPlayer.currentTime - (1 / (window.selectedFileObj.fps || 30)));
+            const fps = window.selectedFileObj.fps || 30;
+            if (window.selectedFileObj.isYoutube) {
+                const target = Math.max(0, window.ytPlayer.getCurrentTime() - (1 / fps));
+                window.ytPlayer.seekTo(target, true);
+            } else {
+                mainPlayer.pause();
+                mainPlayer.currentTime = Math.max(0, mainPlayer.currentTime - (1 / fps));
+            }
             updatePlayheadUI();
         });
     }
@@ -242,24 +288,70 @@ function initPlayerEvents() {
     if (stepForwardBtn) {
         stepForwardBtn.addEventListener('click', () => {
             if (!window.selectedFileObj) return;
-            mainPlayer.pause();
-            mainPlayer.currentTime = Math.min(window.selectedFileObj.duration, mainPlayer.currentTime + (1 / (window.selectedFileObj.fps || 30)));
+            const fps = window.selectedFileObj.fps || 30;
+            if (window.selectedFileObj.isYoutube) {
+                const target = Math.min(window.selectedFileObj.duration, window.ytPlayer.getCurrentTime() + (1 / fps));
+                window.ytPlayer.seekTo(target, true);
+            } else {
+                mainPlayer.pause();
+                mainPlayer.currentTime = Math.min(window.selectedFileObj.duration, mainPlayer.currentTime + (1 / fps));
+            }
             updatePlayheadUI();
         });
     }
 }
 
 function togglePlayPause() {
-    console.log("[JS] togglePlayPause called");
+    if (!window.selectedFileObj) return;
     const mainPlayer = document.getElementById('main-player');
-    if (!window.selectedFileObj || !mainPlayer) return;
-    
-    if (mainPlayer.paused) {
-        mainPlayer.play().catch(err => console.error("Play error:", err));
+
+    if (window.selectedFileObj.isYoutube) {
+        const state = window.ytPlayer.getPlayerState();
+        if (state == YT.PlayerState.PLAYING) {
+            window.ytPlayer.pauseVideo();
+        } else {
+            window.ytPlayer.playVideo();
+            // Start sync loop for YT
+            updatePlayheadUI(); 
+            requestAnimationFrame(updateSyncProxy);
+        }
     } else {
-        mainPlayer.pause();
+        if (mainPlayer.paused) {
+            mainPlayer.play().catch(err => console.error("Play error:", err));
+        } else {
+            mainPlayer.pause();
+        }
     }
 }
+
+// Helper to start sync loop for YT from outside
+window.updateSyncProxy = function() {
+    if (window.selectedFileObj && window.selectedFileObj.isYoutube && window.ytPlayer) {
+        const state = window.ytPlayer.getPlayerState();
+        if (state == YT.PlayerState.PLAYING) {
+            const currentTime = window.ytPlayer.getCurrentTime();
+            
+            // Loop logic for YouTube
+            if (window.selectedSegmentObj) {
+                const inPoint = window.selectedSegmentObj.start;
+                const outPoint = window.selectedSegmentObj.end;
+                
+                // 루프 설정이 켜져 있을 때만 반복
+                if (window.selectedSegmentObj.loopPlayback && currentTime >= outPoint) {
+                    window.ytPlayer.seekTo(inPoint, true);
+                }
+            }
+
+            
+            // 타임코드 및 재생바 강제 업데이트
+            if (typeof updatePlayheadUI === 'function') {
+                updatePlayheadUI();
+            }
+            
+            requestAnimationFrame(window.updateSyncProxy);
+        }
+    }
+};
 
 function initVolumeControls() {
     const mainPlayer = document.getElementById('main-player');
@@ -286,19 +378,31 @@ function initVolumeControls() {
         const val = parseFloat(e.target.value);
         mainPlayer.volume = val;
         mainPlayer.muted = (val === 0);
+        if (window.ytPlayer && window.ytPlayer.setVolume) {
+            window.ytPlayer.setVolume(val * 100);
+            if (val === 0) window.ytPlayer.mute();
+            else window.ytPlayer.unMute();
+        }
         if (val > 0) window.lastVolume = val;
         updateVolumeIcon();
         updateVolumeSliderFill(val);
     });
 
     muteBtn.addEventListener('click', () => {
-        mainPlayer.muted = !mainPlayer.muted;
+        const isMuting = !mainPlayer.muted;
+        mainPlayer.muted = isMuting;
+        if (window.ytPlayer && window.ytPlayer.mute) {
+            if (isMuting) window.ytPlayer.mute();
+            else window.ytPlayer.unMute();
+        }
+
         if (mainPlayer.muted) {
             volumeSlider.value = 0;
         } else {
             if (window.lastVolume === 0) window.lastVolume = 0.5;
             mainPlayer.volume = window.lastVolume;
             volumeSlider.value = window.lastVolume;
+            if (window.ytPlayer && window.ytPlayer.setVolume) window.ytPlayer.setVolume(window.lastVolume * 100);
         }
         updateVolumeIcon();
         updateVolumeSliderFill(volumeSlider.value);
@@ -379,5 +483,53 @@ function displayFilmstrip(fileObj) {
         img.className = "h-full object-cover min-w-0 flex-1 border-r border-black/10";
         filmstripContainer.appendChild(img);
         if (filmstripContainer.children.length >= targetCount) break;
+    }
+}
+// --- YouTube IFrame API Integration ---
+window.ytPlayer = null;
+window.isYTReady = false;
+
+// This function is called by the YouTube API script
+window.onYouTubeIframeAPIReady = function() {
+    window.ytPlayer = new YT.Player('yt-player', {
+        height: '100%',
+        width: '100%',
+        playerVars: {
+            'autoplay': 0,
+            'controls': 0,         // Hide bottom controls
+            'disablekb': 1,        // Disable keyboard (we handle it)
+            'fs': 0,               // Disable fullscreen button
+            'rel': 0,              // Disable related videos
+            'modestbranding': 1,   // Hide YouTube logo in bar
+            'iv_load_policy': 3,   // Hide annotations
+            'autohide': 1,         // Auto-hide controls
+            'showinfo': 0,         // Hide title (deprecated but good to keep)
+            'origin': window.location.origin
+        },
+        events: {
+            'onReady': onPlayerReady,
+            'onStateChange': onPlayerStateChange
+        }
+    });
+};
+
+function onPlayerReady(event) {
+    window.isYTReady = true;
+    console.log("[YT API] Player Ready");
+    
+    // Initial volume sync
+    const vol = document.getElementById('volume-slider').value;
+    event.target.setVolume(vol * 100);
+}
+
+function onPlayerStateChange(event) {
+    const playIcon = document.getElementById('play-icon');
+    if (!playIcon) return;
+
+    if (event.data == YT.PlayerState.PLAYING) {
+        playIcon.textContent = 'pause';
+        requestAnimationFrame(updateSyncProxy);
+    } else if (event.data == YT.PlayerState.PAUSED || event.data == YT.PlayerState.ENDED) {
+        playIcon.textContent = 'play_arrow';
     }
 }

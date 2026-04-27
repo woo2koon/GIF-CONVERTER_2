@@ -23,12 +23,20 @@ def conversion_worker(file_id, input_path, output_path, start_time, end_time, fp
             crop_filter = f"crop=iw*{cw:.4f}:ih*{ch:.4f}:iw*{cx:.4f}:ih*{cy:.4f},"
 
         scale_filter = ""
-        if ":" in str(resolution):
-            scale_filter = f"scale={resolution}:flags=lanczos,"
-        elif "720" in str(resolution):
-            scale_filter = "scale=-1:min(ih\\,720):flags=lanczos,"
-        elif "480" in str(resolution):
-            scale_filter = "scale=-1:min(ih\\,480):flags=lanczos,"
+        res_str = str(resolution)
+        
+        if res_str == "original":
+            scale_filter = ""
+        elif ":" in res_str:
+            # "width:height" format from Custom Resolution
+            scale_filter = f"scale={res_str}:flags=lanczos,"
+        elif "720" in res_str:
+            scale_filter = "scale=w=-1:h='min(ih,720)':flags=lanczos,"
+        elif "480" in res_str:
+            scale_filter = "scale=w=-1:h='min(ih,480)':flags=lanczos,"
+        
+        print(f"[Conversion] Requested Resolution: {resolution}")
+        print(f"[Conversion] Applied Scale Filter: {scale_filter}")
             
         base_filters = crop_filter + scale_filter
         dither_method = "sierra2_4a" if use_dither else "none"
@@ -36,31 +44,39 @@ def conversion_worker(file_id, input_path, output_path, start_time, end_time, fp
         # --- Pass 1: Palette Generation ---
         status_callback(file_id, "팔레트 생성 중...", 5)
         sleep_callback(0.01)
-        filters_pass1 = f"{base_filters}fps={int(fps)},palettegen=max_colors={num_colors}:stats_mode=diff"
+        # 명시적으로 [0:v] 라벨을 사용하여 첫 번째 입력 영상에 필터 적용
+        filters_pass1 = f"[0:v]{base_filters}fps={fps},palettegen=max_colors={num_colors}:stats_mode=diff"
         
         cmd1 = [ffmpeg_exe, "-y", "-ss", str(start_time), "-t", str(duration), "-i", input_path]
-        if audio_path:
-            cmd1.extend(["-ss", str(start_time), "-t", str(duration), "-i", audio_path])
+        # 팔레트 생성에는 오디오가 필요 없음
         cmd1.extend(["-vf", filters_pass1, palette_path])
         
-        subprocess.run(cmd1, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        print(f"[Conversion] Pass 1 Command: {' '.join(cmd1)}")
+        result1 = subprocess.run(cmd1, capture_output=True, text=True, errors='ignore')
+        if result1.returncode != 0:
+            print(f"[Conversion] Pass 1 Failed: {result1.stderr}")
+            raise Exception(f"팔레트 생성 실패: {result1.stderr}")
         
         # --- Pass 2: GIF Encoding ---
         status_callback(file_id, "인코딩 중...", 15)
         sleep_callback(0.01)
         loop_val = "0" if loop_playback else "-1"
-        filters_pass2 = f"{base_filters}fps={int(fps)}[x];[x][1:v]paletteuse=dither={dither_method}"
+        
+        # 입력 인덱스: 0=비디오, 1=오디오(있을 경우), 마지막=팔레트
+        palette_input_index = 2 if audio_path else 1
+        filters_pass2 = f"[0:v]{base_filters}fps={fps}[x];[x][{palette_input_index}:v]paletteuse=dither={dither_method}"
         
         cmd2 = [ffmpeg_exe, "-y", "-ss", str(start_time), "-t", str(duration), "-i", input_path]
         if audio_path:
             cmd2.extend(["-ss", str(start_time), "-t", str(duration), "-i", audio_path])
         cmd2.extend([
             "-i", palette_path,
-            "-filter_complex", filters_pass2 if not audio_path else f"{base_filters}fps={int(fps)}[x];[x][2:v]paletteuse=dither={dither_method}", 
+            "-filter_complex", filters_pass2,
             "-loop", loop_val, 
             "-progress", "pipe:1", output_path
         ])
         
+        print(f"[Conversion] Pass 2 Command: {' '.join(cmd2)}")
         process = subprocess.Popen(cmd2, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='ignore', universal_newlines=True)
         register_process(process)
         

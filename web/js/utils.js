@@ -73,3 +73,34 @@ function getCurrentEffectiveRatio() {
     }
     return 16 / 9;
 }
+
+/**
+ * 전역 토스트 알림을 띄웁니다.
+ */
+function showToast(message, duration = 3000) {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+
+    const toast = document.createElement('div');
+    toast.className = 'bg-slate-900/90 backdrop-blur-md text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 transition-all duration-300 opacity-0 translate-y-4 pointer-events-auto border border-white/10';
+    
+    toast.innerHTML = `
+        <span class="material-symbols-outlined text-rose-400 text-[20px]">error</span>
+        <span class="text-sm font-bold tracking-tight">${message}</span>
+    `;
+
+    container.appendChild(toast);
+
+    // 등장 애니메이션
+    requestAnimationFrame(() => {
+        toast.classList.remove('opacity-0', 'translate-y-4');
+        toast.classList.add('opacity-100', 'translate-y-0');
+    });
+
+    // 자동 제거
+    setTimeout(() => {
+        toast.classList.remove('opacity-100', 'translate-y-0');
+        toast.classList.add('opacity-0', '-translate-y-4');
+        setTimeout(() => toast.remove(), 500);
+    }, duration);
+}

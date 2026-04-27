@@ -59,15 +59,16 @@ function updatePlayheadUI(forceTime = null) {
     const playIcon = document.getElementById('play-icon');
     
     const duration = window.selectedFileObj.duration;
-    let timeToUse = forceTime !== null ? forceTime : mainPlayer.currentTime;
+    let timeToUse = forceTime !== null ? forceTime : 0;
     
-    // YouTube 프록시인 경우 현재 플레이어 시간은 상대적임 (ss 이후부터 0으로 시작)
-    if (window.selectedFileObj.isYoutube && window.selectedFileObj.streamUrl.includes('/yt_proxy')) {
-        if (forceTime === null) {
-            timeToUse = window.proxyStartTime + mainPlayer.currentTime;
+    if (forceTime === null) {
+        if (window.selectedFileObj.isYoutube) {
+            timeToUse = window.ytPlayer ? window.ytPlayer.getCurrentTime() : 0;
+        } else {
+            timeToUse = mainPlayer.currentTime;
         }
     }
-
+    
     const currentPct = (timeToUse / duration) * 100;
     
     const newPos = `${currentPct}%`;
@@ -81,7 +82,13 @@ function updatePlayheadUI(forceTime = null) {
         currentTimeDisplay.textContent = timeStr;
     }
     
-    const targetIcon = mainPlayer.paused ? 'play_arrow' : 'pause';
+    let isPaused;
+    if (window.selectedFileObj.isYoutube) {
+        isPaused = !window.ytPlayer || window.ytPlayer.getPlayerState() !== YT.PlayerState.PLAYING;
+    } else {
+        isPaused = mainPlayer.paused;
+    }
+    const targetIcon = isPaused ? 'play_arrow' : 'pause';
     if (playIcon && playIcon.textContent !== targetIcon) {
         playIcon.textContent = targetIcon;
     }
@@ -128,10 +135,25 @@ function fullUpdateTimelineUI(forceTime = null) {
 
 function initTimelineEvents() {
     const timelineTrack = document.getElementById('timeline-track');
+    const scrollContainer = document.getElementById('timeline-scroll-container');
+    const zoomSlider = document.getElementById('timeline-zoom-slider');
     const mainPlayer = document.getElementById('main-player');
     const handleLeft = document.getElementById('handle-left');
     const handleRight = document.getElementById('handle-right');
     const playhead = document.getElementById('playhead-handle');
+
+    // 타임라인 확대/축소 로직
+    if (zoomSlider && timelineTrack && scrollContainer) {
+        zoomSlider.addEventListener('input', (e) => {
+            const zoom = parseFloat(e.target.value);
+            updateTimelineZoom(zoom);
+        });
+
+        // 슬라이더 조작 후 포커스 해제 (스페이스바 등 단축키 먹통 방지)
+        zoomSlider.addEventListener('change', (e) => {
+            e.target.blur();
+        });
+    }
 
     let isScrubbing = false;
     let isDraggingLeft = false;
@@ -195,9 +217,13 @@ function initTimelineEvents() {
 
         if (!scrubAnimationFrame) {
             scrubAnimationFrame = requestAnimationFrame(() => {
-                if (isScrubbing) mainPlayer.currentTime = time;
-                else if (isDraggingLeft && window.selectedSegmentObj) mainPlayer.currentTime = window.selectedSegmentObj.start;
-                else if (isDraggingRight && window.selectedSegmentObj) mainPlayer.currentTime = window.selectedSegmentObj.end;
+                if (window.selectedFileObj.isYoutube) {
+                    window.ytPlayer.seekTo(time, true);
+                } else {
+                    if (isScrubbing) mainPlayer.currentTime = time;
+                    else if (isDraggingLeft && window.selectedSegmentObj) mainPlayer.currentTime = window.selectedSegmentObj.start;
+                    else if (isDraggingRight && window.selectedSegmentObj) mainPlayer.currentTime = window.selectedSegmentObj.end;
+                }
                 scrubAnimationFrame = null;
             });
         }
@@ -206,22 +232,12 @@ function initTimelineEvents() {
     document.addEventListener('mouseup', () => {
         if (isScrubbing || isDraggingLeft || isDraggingRight) {
             if (window.selectedFileObj && window.selectedFileObj.isYoutube) {
-                const rect = timelineTrack.getBoundingClientRect();
                 const mainPlayer = document.getElementById('main-player');
-                
-                // 마지막 위치 계산
                 const timeToSeek = isDraggingLeft ? window.selectedSegmentObj.start : 
-                                  (isDraggingRight ? window.selectedSegmentObj.end : mainPlayer.currentTime);
+                                  (isDraggingRight ? window.selectedSegmentObj.end : 0);
                 
-                // 프록시 시킹 (새로운 ss 파라미터로 소스 재로드)
-                if (window.selectedFileObj.streamUrl.includes('/yt_proxy')) {
-                    window.proxyStartTime = timeToSeek;
-                    window.isProxySeeking = true;
-                    
-                    const baseSrc = window.selectedFileObj.streamUrl.split('&ss=')[0];
-                    mainPlayer.src = `${baseSrc}&ss=${timeToSeek}`;
-                    mainPlayer.load();
-                    mainPlayer.play().catch(() => {});
+                if (timeToSeek > 0 || isDraggingLeft || isDraggingRight) {
+                    window.ytPlayer.seekTo(timeToSeek, true);
                 }
             }
 
@@ -236,16 +252,35 @@ function initTimelineEvents() {
         isDraggingRight = false;
     });
 
+    let lastSeekTime = 0;
     function seekToPosition(e) {
+        if (!window.selectedFileObj) return;
+
         const rect = timelineTrack.getBoundingClientRect();
         let x = e.clientX - rect.left;
         x = Math.max(0, Math.min(x, rect.width));
         const pct = x / rect.width;
+        
+        const duration = window.selectedFileObj.duration;
         const fps = window.selectedFileObj.fps || 24;
-        let targetTime = pct * window.selectedFileObj.duration;
+        let targetTime = pct * duration;
         targetTime = Math.round(targetTime * fps) / fps;
-        updatePlayheadUI(targetTime);
-        mainPlayer.currentTime = targetTime;
+
+        // UI 업데이트는 rAF를 통해 즉시 수행 (반응성 최우선)
+        requestAnimationFrame(() => {
+            updatePlayheadUI(targetTime);
+        });
+        
+        // 실제 비디오 탐색은 약간의 쓰로틀링을 적용 (원활한 스트리밍 유지)
+        const now = performance.now();
+        if (now - lastSeekTime > 32) { // 약 30fps 정도로 제한
+            if (window.selectedFileObj.isYoutube && window.ytPlayer) {
+                window.ytPlayer.seekTo(targetTime, true);
+            } else {
+                mainPlayer.currentTime = targetTime;
+            }
+            lastSeekTime = now;
+        }
     }
 
     const resetBtn = document.getElementById('trim-reset-btn');
@@ -313,3 +348,41 @@ function addNewSegment() {
     updateStatus("새로운 구간이 대기열에 추가되었습니다.");
     setTimeout(() => updateStatus(""), 2000);
 }
+
+window.updateTimelineZoom = function(zoom) {
+    const timelineTrack = document.getElementById('timeline-track');
+    const scrollContainer = document.getElementById('timeline-scroll-container');
+    const zoomSlider = document.getElementById('timeline-zoom-slider');
+    const mainPlayer = document.getElementById('main-player');
+    
+    if (!timelineTrack || !scrollContainer) return;
+    
+    window.timelineZoom = zoom;
+    if (zoomSlider) zoomSlider.value = zoom;
+    
+    // 1배율일 때는 스크롤 원천 차단
+    if (zoom === 1) {
+        scrollContainer.style.overflowX = 'hidden';
+        timelineTrack.style.width = '100%';
+        scrollContainer.scrollLeft = 0;
+    } else {
+        scrollContainer.style.overflowX = 'auto';
+        timelineTrack.style.width = `${zoom * 100}%`;
+        
+        // 확대 시 현재 재생 지점이 중앙에 오도록 스크롤 조정
+        if (window.selectedFileObj) {
+            const duration = window.selectedFileObj.duration || 1;
+            const currentTime = window.selectedFileObj.isYoutube ? 
+                (window.ytPlayer ? window.ytPlayer.getCurrentTime() : 0) : 
+                (mainPlayer ? mainPlayer.currentTime : 0);
+            const playheadPct = currentTime / duration;
+            
+            requestAnimationFrame(() => {
+                const trackWidth = timelineTrack.offsetWidth;
+                const containerWidth = scrollContainer.offsetWidth;
+                const scrollLeft = (trackWidth * playheadPct) - (containerWidth / 2);
+                scrollContainer.scrollLeft = scrollLeft;
+            });
+        }
+    }
+};

@@ -80,11 +80,21 @@ function updateCropOverlaySize() {
     const video = document.getElementById('main-player');
     const overlay = document.getElementById('crop-overlay');
     const container = document.getElementById('video-container');
-    if (!video || !overlay || !container || video.videoWidth === 0) return;
+    if (!overlay || !container) return;
+
+    let vWidth, vHeight;
+    if (window.selectedFileObj && window.selectedFileObj.isYoutube) {
+        vWidth = window.selectedFileObj.width;
+        vHeight = window.selectedFileObj.height;
+    } else {
+        if (!video || video.videoWidth === 0) return;
+        vWidth = video.videoWidth;
+        vHeight = video.videoHeight;
+    }
 
     const containerWidth = container.clientWidth;
     const containerHeight = container.clientHeight;
-    const videoRatio = video.videoWidth / video.videoHeight;
+    const videoRatio = vWidth / vHeight;
     const containerRatio = containerWidth / containerHeight;
 
     let displayWidth, displayHeight;
@@ -105,6 +115,8 @@ function updateCropOverlaySize() {
 function updateCropUI() {
     const cropBox = document.getElementById('crop-box');
     const cropOverlay = document.getElementById('crop-overlay');
+    const pixelDisplay = document.getElementById('crop-pixel-display');
+
     if (!window.isCropMode) {
         cropOverlay.classList.add('hidden');
         cropBox.classList.add('hidden');
@@ -117,11 +129,15 @@ function updateCropUI() {
     cropBox.style.width = `${window.cropBoxState.w}%`;
     cropBox.style.height = `${window.cropBoxState.h}%`;
 
-    // Update Custom Resolution Inputs to match crop box pixels
+    // Update Custom Resolution Inputs and Pixel HUD to match crop box pixels
     if (window.selectedFileObj) {
         const realW = Math.round(window.selectedFileObj.width * (window.cropBoxState.w / 100));
         const realH = Math.round(window.selectedFileObj.height * (window.cropBoxState.h / 100));
         
+        if (pixelDisplay) {
+            pixelDisplay.textContent = `${realW} × ${realH}`;
+        }
+
         const customWInput = document.getElementById('custom-width');
         const customHInput = document.getElementById('custom-height');
         if (customWInput && customHInput) {
@@ -250,6 +266,7 @@ function initCropLogic() {
         const box = e.target.closest('#crop-box');
         
         e.preventDefault();
+        e.stopPropagation(); // Prevent interaction from reaching the player
         isDragging = true;
         startX = e.clientX;
         startY = e.clientY;
@@ -412,4 +429,5 @@ function initCropLogic() {
     }
 
     cropOverlay.addEventListener('mousedown', onMouseDown);
+    cropOverlay.addEventListener('click', (e) => e.stopPropagation());
 }

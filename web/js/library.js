@@ -298,3 +298,84 @@ async function processFilePaths(paths) {
     updateStatus("");
     processProxyQueue();
 }
+// --- Custom Context Menu Logic ---
+function showContextMenu(e, fileObj) {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const ctxMenu = document.getElementById('custom-context-menu');
+    if (!ctxMenu) return;
+    
+    window.ctxTargetFile = fileObj;
+
+    // 메뉴 위치 설정
+    ctxMenu.style.left = `${e.pageX}px`;
+    ctxMenu.style.top = `${e.pageY}px`;
+    ctxMenu.classList.remove('hidden');
+
+    // 프록시 버튼 상태 업데이트
+    const proxyBtn = document.getElementById('ctx-generate-proxy');
+    if (proxyBtn) {
+        if (fileObj.isYoutube || fileObj.proxyPath || fileObj.isProxying) {
+            proxyBtn.classList.add('opacity-30', 'pointer-events-none');
+            const icon = proxyBtn.querySelector('.material-symbols-outlined');
+            if (icon) icon.textContent = fileObj.isYoutube ? "link" : (fileObj.isProxying ? "pending" : "check_circle");
+        } else {
+            proxyBtn.classList.remove('opacity-30', 'pointer-events-none');
+            const icon = proxyBtn.querySelector('.material-symbols-outlined');
+            if (icon) icon.textContent = "speed";
+        }
+    }
+
+    // 폴더 열기 버튼 상태 업데이트 (유튜브는 폴더가 없으므로 비활성화)
+    const openFolderBtn = document.getElementById('ctx-open-folder');
+    if (openFolderBtn) {
+        if (fileObj.isYoutube) {
+            openFolderBtn.classList.add('opacity-30', 'pointer-events-none');
+        } else {
+            openFolderBtn.classList.remove('opacity-30', 'pointer-events-none');
+        }
+    }
+}
+
+// 메뉴 항목 클릭 처리 초기화
+document.addEventListener('DOMContentLoaded', () => {
+    const ctxMenu = document.getElementById('custom-context-menu');
+    if (!ctxMenu) return;
+
+    // 메뉴 바깥 클릭 시 닫기
+    document.addEventListener('click', () => {
+        ctxMenu.classList.add('hidden');
+    });
+
+    const genProxyBtn = document.getElementById('ctx-generate-proxy');
+    if (genProxyBtn) {
+        genProxyBtn.addEventListener('click', () => {
+            if (window.ctxTargetFile && typeof startProxyConversion === 'function') {
+                startProxyConversion(window.ctxTargetFile);
+            }
+        });
+    }
+
+    const openFolderBtn = document.getElementById('ctx-open-folder');
+    if (openFolderBtn) {
+        openFolderBtn.addEventListener('click', () => {
+            if (window.ctxTargetFile && window.ctxTargetFile.path) {
+                eel.open_file_location(window.ctxTargetFile.path)();
+            }
+        });
+    }
+
+    const deleteBtn = document.getElementById('ctx-delete');
+    if (deleteBtn) {
+        deleteBtn.addEventListener('click', () => {
+            if (window.ctxTargetFile) {
+                const item = document.querySelector(`[data-id="${window.ctxTargetFile.id}"]`);
+                if (item) {
+                    const realDeleteBtn = item.querySelector('.delete-file-btn');
+                    if (realDeleteBtn) realDeleteBtn.click();
+                }
+            }
+        });
+    }
+});

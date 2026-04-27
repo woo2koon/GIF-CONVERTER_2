@@ -1,4 +1,13 @@
 document.addEventListener('DOMContentLoaded', async () => {
+    // 0. Global Initialization
+    window.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        
+        // 배경 우클릭 시 기존에 열려있던 커스텀 메뉴가 있다면 닫기
+        const ctxMenu = document.getElementById('custom-context-menu');
+        if (ctxMenu) ctxMenu.classList.add('hidden');
+    });
+
     // 1. Initialize State
     window.currentOS = await eel.get_os_info()();
     document.body.classList.add('fonts-loaded'); // For Material Symbols flash fix
@@ -108,7 +117,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             seg.resolution = e.detail.value;
             syncUIToFile(window.selectedFileObj);
             if (window.selectedFileObj.isBatchSync) {
-                window.selectedFileObj.segments.forEach(s => s.resolution = seg.resolution);
+                window.selectedFileObj.segments.forEach(s => {
+                    s.resolution = seg.resolution;
+                    s.customWidth = seg.customWidth;
+                    s.customHeight = seg.customHeight;
+                    s.aspectRatioLock = seg.aspectRatioLock;
+                });
             }
         });
     }
@@ -174,6 +188,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                     seg.customWidth = Math.round(seg.customHeight * ratio);
                     customW.value = seg.customWidth;
                 }
+            }
+
+            // Batch Sync custom dimensions
+            if (window.selectedFileObj.isBatchSync) {
+                window.selectedFileObj.segments.forEach(s => {
+                    s.customWidth = seg.customWidth;
+                    s.customHeight = seg.customHeight;
+                    s.aspectRatioLock = seg.aspectRatioLock;
+                });
             }
         };
 
