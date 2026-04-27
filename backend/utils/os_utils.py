@@ -1,0 +1,122 @@
+import os
+import platform
+import subprocess
+
+def get_os_info():
+    return platform.system()
+
+def open_folder(path):
+    """지정한 폴더를 엽니다."""
+    if not os.path.exists(path):
+        os.makedirs(path, exist_ok=True)
+        
+    try:
+        if platform.system() == 'Darwin':
+            subprocess.run(['open', path])
+        elif platform.system() == 'Windows':
+            os.startfile(path)
+        return {"status": "success"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+def open_file_location(path):
+    """파일이 있는 폴더를 열고 해당 파일을 선택 상태로 표시합니다."""
+    try:
+        if platform.system() == 'Windows':
+            subprocess.run(['explorer', '/select,', os.path.normpath(path)])
+        elif platform.system() == 'Darwin':
+            subprocess.run(['open', '-R', path])
+        return {"status": "success"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+def pick_videos(webview_window=None):
+    """Opens a native file picker and returns absolute paths."""
+    print(f"\n[Backend] pick_videos 호출됨 (OS: {platform.system()})")
+    
+    if platform.system() == 'Darwin':
+        # 1. pywebview (Fastest & Native on Mac)
+        if webview_window is not None:
+            try:
+                import webview
+                print("[Backend] pywebview create_file_dialog 호출...")
+                file_types = ('Video Files (*.mp4;*.mov;*.avi;*.mkv;*.wmv;*.webm)', 'All files (*.*)')
+                result = webview_window.create_file_dialog(
+                    webview.FileDialog.OPEN,
+                    allow_multiple=True,
+                    file_types=file_types
+                )
+                if result:
+                    print(f"[Backend] pywebview 파일 선택 성공: {len(result)}개")
+                    return list(result)
+                else:
+                    return [] # User cancelled
+            except Exception as e:
+                print(f"[Backend] pywebview 다이얼로그 실패: {e}")
+
+        # 2. AppleScript (Fallback)
+        script = '''
+        set out to ""
+        tell current application
+            activate
+            set theFiles to choose file with prompt "비디오 파일 선택" of type {"public.movie", "org.webmproject.webm", "mp4", "mov", "avi", "mkv", "wmv"} with multiple selections allowed
+            repeat with aFile in theFiles
+                set out to out & POSIX path of aFile & "\n"
+            end repeat
+        end tell
+        out
+        '''
+        try:
+            print("[Backend] AppleScript 호출 시도 (Fallback)...")
+            process = subprocess.Popen(['osascript', '-e', script], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            stdout, _ = process.communicate()
+            if stdout.strip():
+                paths = stdout.strip().split('\n')
+                print(f"[Backend] AppleScript 파일 선택 성공: {len(paths)}개")
+                return paths
+        except Exception as e:
+            print(f"[Backend] AppleScript 실패: {e}")
+        return []
+    else:
+        # Windows/Linux: tkinter
+        print("[Backend] Tkinter 호출 시도...")
+        import tkinter as tk
+        from tkinter import filedialog
+        try:
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes("-topmost", True)
+            files = filedialog.askopenfilenames(
+                title="비디오 파일 선택",
+                filetypes=[("Video files", "*.mp4 *.mov *.avi *.mkv *.wmv *.webm")]
+            )
+            root.destroy()
+            print(f"[Backend] 파일 선택 성공: {len(files)}개")
+            return list(files)
+        except Exception as e:
+            print(f"[Backend] Tkinter 예외 발생: {str(e)}")
+            return []
+
+def select_save_directory():
+    try:
+        if platform.system() == 'Darwin':
+            script = 'POSIX path of (choose folder with prompt "저장 폴더를 선택하세요")'
+            process = subprocess.Popen(['osascript', '-e', script], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            stdout, _ = process.communicate()
+            if process.returncode == 0:
+                selected_dir = stdout.strip()
+                return selected_dir
+        else:
+            # Windows/Linux: tkinter
+            import tkinter as tk
+            from tkinter import filedialog
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes("-topmost", True)
+            selected_dir = filedialog.askdirectory(title="저장 폴더를 선택하세요")
+            root.destroy()
+            if selected_dir:
+                return os.path.normpath(selected_dir)
+    except Exception as e:
+        print(f"Folder selection error: {e}")
+    return None
