@@ -67,7 +67,7 @@ function selectVideo(fileObj) {
             if (fileObj.isYoutube && window.ytPlayer && window.ytPlayer.seekTo) {
                 window.ytPlayer.seekTo(startTime, true);
             } else if (mainPlayer) {
-                mainPlayer.currentTime = startTime;
+                mainPlayer.currentTime = startTime + 0.001;
             }
             updatePlayheadUI(startTime);
         }
@@ -147,7 +147,7 @@ function selectVideo(fileObj) {
             updateCropOverlaySize();
             
             if (window.selectedSegmentObj) {
-                mainPlayer.currentTime = window.selectedSegmentObj.start;
+                mainPlayer.currentTime = window.selectedSegmentObj.start + 0.001;
                 updatePlayheadUI(window.selectedSegmentObj.start);
             }
             
@@ -185,6 +185,7 @@ function initPlayerEvents() {
     if (!mainPlayer || !playIcon) return;
 
     let syncAnimationFrame = null;
+    let isSeekingNow = false; // 탐색 중임을 나타내는 플래그
 
     function updateSync() {
         if (!window.selectedFileObj) return;
@@ -199,23 +200,35 @@ function initPlayerEvents() {
         }
 
         if (!isPaused) {
-            if (window.selectedSegmentObj) {
+            if (window.selectedSegmentObj && !isSeekingNow) {
                 const inPoint = window.selectedSegmentObj.start;
                 const outPoint = window.selectedSegmentObj.end;
                 
-                if (currentTime >= outPoint) {
+                if (currentTime < inPoint - 0.05 || currentTime >= outPoint) {
                     if (window.selectedFileObj.isYoutube) {
                         window.ytPlayer.seekTo(inPoint, true);
                     } else {
-                        mainPlayer.currentTime = inPoint;
+                        isSeekingNow = true;
+                        updatePlayheadUI(inPoint);
+                        mainPlayer.currentTime = inPoint + 0.001;
                     }
                 }
             }
             
-            updatePlayheadUI();
+            // 탐색 중이 아닐 때만 실제 시간으로 UI 갱신
+            if (!isSeekingNow) {
+                updatePlayheadUI();
+            }
+            
             syncAnimationFrame = requestAnimationFrame(updateSync);
         }
     }
+
+    // 탐색 완료 이벤트 리스너
+    mainPlayer.addEventListener('seeked', () => {
+        isSeekingNow = false;
+        updatePlayheadUI();
+    });
 
     mainPlayer.addEventListener('play', () => {
         if (window.selectedFileObj && !window.selectedFileObj.isYoutube) {
@@ -307,14 +320,33 @@ function togglePlayPause() {
         if (state == YT.PlayerState.PLAYING) {
             window.ytPlayer.pauseVideo();
         } else {
+            // YouTube 인 지점 보정 후 재생
+            if (window.selectedSegmentObj) {
+                const inPoint = window.selectedSegmentObj.start;
+                const curr = window.ytPlayer.getCurrentTime();
+                if (curr < inPoint - 0.1 || curr > window.selectedSegmentObj.end) {
+                    window.ytPlayer.seekTo(inPoint, true);
+                }
+            }
             window.ytPlayer.playVideo();
-            // Start sync loop for YT
             updatePlayheadUI(); 
-            requestAnimationFrame(updateSyncProxy);
+            requestAnimationFrame(window.updateSyncProxy);
         }
     } else {
         if (mainPlayer.paused) {
-            mainPlayer.play().catch(err => console.error("Play error:", err));
+            // [개선] 재생 전 구간 시작점 체크 및 사전 탐색
+            if (window.selectedSegmentObj) {
+                const inPoint = window.selectedSegmentObj.start;
+                // 현재 위치가 인 지점보다 이전이거나 완전히 벗어나 있으면 먼저 이동
+                if (mainPlayer.currentTime < inPoint - 0.05 || mainPlayer.currentTime >= window.selectedSegmentObj.end) {
+                    mainPlayer.currentTime = inPoint + 0.001;
+                }
+            }
+            
+            // 약간의 지연 후 재생하여 화면-시간 동기화 유도
+            requestAnimationFrame(() => {
+                mainPlayer.play().catch(err => console.error("Play error:", err));
+            });
         } else {
             mainPlayer.pause();
         }
@@ -333,9 +365,14 @@ window.updateSyncProxy = function() {
                 const inPoint = window.selectedSegmentObj.start;
                 const outPoint = window.selectedSegmentObj.end;
                 
-                // 루프 설정이 켜져 있을 때만 반복
-                if (window.selectedSegmentObj.loopPlayback && currentTime >= outPoint) {
-                    window.ytPlayer.seekTo(inPoint, true);
+                // 루프 설정이 켜져 있을 때만 반복하되, 인 지점 가드는 항상 작동
+                if (window.selectedSegmentObj.loopPlayback) {
+                    if (currentTime < inPoint - 0.05 || currentTime >= outPoint) {
+                        updatePlayheadUI(inPoint);
+                        window.ytPlayer.seekTo(inPoint, true);
+                        requestAnimationFrame(window.updateSyncProxy);
+                        return;
+                    }
                 }
             }
 

@@ -130,6 +130,7 @@ async function addYoutubeToLibrary(info, localPath = null) {
             start: 0,
             end: info.duration,
             fps: 24,
+            speed: 1.0,
             resolution: "중간 (720p)",
             numColors: 256,
             useDither: false,

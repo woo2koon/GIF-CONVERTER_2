@@ -62,6 +62,12 @@ function addLibraryItem(fileObj) {
         </div>
     `;
 
+    // 체크박스 이벤트 리스너 추가
+    const checkbox = itemDiv.querySelector('.lib-checkbox');
+    checkbox.addEventListener('change', () => {
+        updateBatchButtonState();
+    });
+
     itemDiv.addEventListener('click', (e) => {
         if (e.target.closest('input') || e.target.closest('button')) return;
         selectVideo(fileObj);
@@ -96,15 +102,6 @@ function addLibraryItem(fileObj) {
     const deleteBtn = itemDiv.querySelector('.delete-file-btn');
     deleteBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        
-        const confirmed = await showCustomConfirm({
-            title: "목록에서 제거",
-            message: `<b>${fileObj.name}</b>을(를) 목록에서 제거하시겠습니까?<br><b class="text-indigo-600">원본 파일은 안전하게 보관됩니다.</b>`,
-            okText: "제거하기",
-            icon: "list_alt"
-        });
-
-        if (!confirmed) return;
 
         // 프록시 생성 중인 경우 백엔드에 취소 신호 발송
         if (window.eel && typeof eel.cancel_proxy === 'function') {
@@ -287,6 +284,7 @@ async function processFilePaths(paths) {
                     start: 0,
                     end: fileInfo.duration,
                     fps: 24,
+                    speed: 1.0,
                     resolution: "중간 (720p)",
                     numColors: 256,
                     useDither: false,

@@ -15,7 +15,7 @@ from backend.utils.os_utils import get_os_info as fetch_os_info, open_folder, op
 from backend.utils.process_manager import cleanup_processes, kill_orphaned_ffmpegs
 from backend.services.youtube_service import download_youtube_video as fetch_youtube_download
 
-VERSION = "1.5.1"
+VERSION = "1.6.0"
 
 # pywebview 전역 참조
 try:
@@ -287,12 +287,12 @@ def clear_youtube_cache():
         return {"status": "error", "message": str(e)}
 
 @eel.expose
-def request_conversion(input_path, file_id, output_name, start_time, end_time, fps, resolution, num_colors=256, use_dither=False, loop_playback=True, crop_params=None, audio_path=None):
+def request_conversion(input_path, file_id, output_name, start_time, end_time, fps, resolution, num_colors=256, use_dither=False, loop_playback=True, crop_params=None, audio_path=None, speed=1.0):
     save_dir = app_config.get("save_dir", DEFAULT_SAVE_DIR)
     return start_conversion(
         input_path, file_id, output_name, start_time, end_time, fps, resolution, 
         save_dir, num_colors, use_dither, loop_playback, crop_params,
-        eel.update_conversion_status, eel.conversion_completed, eel.sleep, audio_path
+        eel.update_conversion_status, eel.conversion_completed, eel.sleep, audio_path, speed
     )
 
 @eel.expose

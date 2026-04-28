@@ -24,6 +24,15 @@ function formatTimeForFilename(seconds) {
     return `${m.toString().padStart(2, '0')}m${s.toString().padStart(2, '0')}s`;
 }
 
+/**
+ * 파일명에서 사용할 수 없는 특수문자를 제거합니다.
+ */
+function sanitizeFilename(filename) {
+    // Windows에서 금지된 문자: < > : " / \ | ? *
+    // 추가로 제어 문자 및 줄바꿈 제거
+    return filename.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').trim();
+}
+
 function updateStatus(text) {
     const statusMsg = document.getElementById('status-msg');
     const statusBar = document.getElementById('status-bar');

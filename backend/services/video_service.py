@@ -33,10 +33,14 @@ def get_file_info(path, proxy_dir):
                 width = int(res_match.group(1))
                 height = int(res_match.group(2))
                 
+            bitrate_match = re.search(r"bitrate:\s+(\d+)\s+kb/s", output)
+            bitrate = int(bitrate_match.group(1)) if bitrate_match else 0
+            
             fps_match = re.search(r'(\d+(?:\.\d+)?)\s+fps', output)
             if fps_match:
                 fps = float(fps_match.group(1))
         except Exception as ffmpeg_err:
+            bitrate = 0
             print(f"메타데이터 추출 실패: {ffmpeg_err}")
 
         # 기존 프록시 파일 존재 여부 확인
@@ -65,6 +69,7 @@ def get_file_info(path, proxy_dir):
             "width": width,
             "height": height,
             "fps": fps,
+            "bitrate": bitrate,
             "proxy_path": proxy_path
         }
     except Exception as e:

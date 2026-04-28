@@ -141,7 +141,10 @@ function conversion_completed(task_id, result) {
             seg.status = result.status === 'success' ? 'completed' : 'error';
             seg.progress = 100;
             renderSegments(fileObj);
-            if (seg.status === 'completed') {
+            
+            if (seg.status === 'error') {
+                showToast(`변환 실패: ${result.message}`, 5000);
+            } else if (seg.status === 'completed') {
                 setTimeout(() => {
                     seg.status = 'idle';
                     renderSegments(fileObj);
@@ -328,7 +331,9 @@ async function processConversionQueue() {
         
         // Use only the original filename. Duplicates are handled by the backend (e.g., adding (1), (2)).
         // Use original filename with time tags for segments to prevent overwriting and provide context
-        const baseName = file.name.split('.')[0];
+        const lastDotIndex = file.name.lastIndexOf('.');
+        let baseName = lastDotIndex !== -1 ? file.name.substring(0, lastDotIndex) : file.name;
+        baseName = sanitizeFilename(baseName);
         let outputName = `${baseName}.gif`;
         
         // If there are segments, add time tags to distinguish them
@@ -349,7 +354,13 @@ async function processConversionQueue() {
         const numColors = seg.numColors || 256;
         const useDither = seg.useDither !== undefined ? seg.useDither : false;
         const loopPlayback = seg.loopPlayback !== undefined ? seg.loopPlayback : true;
-        const cropParams = seg.crop || null;
+        
+        // 크롭 및 키프레임 데이터 통합
+        const cropParams = seg.crop ? { ...seg.crop } : null;
+        if (cropParams && seg.keyframes && seg.keyframes.length > 0) {
+            cropParams.keyframes = seg.keyframes;
+        }
+        const speed = seg.speed || 1.0;
 
         // Create promise for this specific task
         const conversionPromise = new Promise((resolve, reject) => {
@@ -369,7 +380,8 @@ async function processConversionQueue() {
             useDither, 
             loopPlayback, 
             cropParams,
-            file.audioUrl
+            file.audioUrl,
+            speed
         );
 
         // Handle completion

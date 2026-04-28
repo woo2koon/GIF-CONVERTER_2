@@ -214,6 +214,10 @@ function initTimelineEvents() {
             updateTrimUI();
             updatePlayheadUI(window.selectedSegmentObj.end);
         }
+        
+        if (isDraggingLeft || isDraggingRight) {
+            updateSizeEstimate();
+        }
 
         if (!scrubAnimationFrame) {
             scrubAnimationFrame = requestAnimationFrame(() => {
@@ -322,6 +326,7 @@ function addNewSegment() {
         start: currentSeg.start,
         end: currentSeg.end,
         fps: currentSeg.fps,
+        speed: currentSeg.speed || 1.0,
         resolution: currentSeg.resolution,
         numColors: currentSeg.numColors,
         useDither: currentSeg.useDither,

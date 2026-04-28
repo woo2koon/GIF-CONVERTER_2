@@ -69,6 +69,54 @@ document.addEventListener('DOMContentLoaded', async () => {
             updateBatchButtonState();
         });
     }
+    
+    // 8. Bulk Delete Action
+    const bulkDeleteBtn = document.getElementById('bulk-delete-btn');
+    if (bulkDeleteBtn) {
+        bulkDeleteBtn.addEventListener('click', async () => {
+            const checkedBoxes = document.querySelectorAll('.lib-checkbox:checked');
+            if (checkedBoxes.length === 0) return;
+
+            const confirmed = await showCustomConfirm({
+                title: "일괄 제거",
+                message: `선택한 <b>${checkedBoxes.length}개</b>의 파일을 목록에서 제거하시겠습니까?<br><b class="text-indigo-600">원본 파일은 안전하게 보관됩니다.</b>`,
+                okText: "모두 제거",
+                okColor: "rose",
+                icon: "delete_sweep"
+            });
+
+            if (!confirmed) return;
+
+            // 역순으로 지워야 인덱스 꼬임이 없음
+            const indicesToRemove = Array.from(checkedBoxes)
+                .map(cb => parseInt(cb.dataset.index))
+                .sort((a, b) => b - a);
+
+            indicesToRemove.forEach(idx => {
+                const fileObj = window.uploadedFiles[idx];
+                if (fileObj) {
+                    if (window.eel && typeof eel.cancel_proxy === 'function') {
+                        eel.cancel_proxy(fileObj.id)();
+                    }
+                    window.uploadedFiles.splice(idx, 1);
+                    const item = document.querySelector(`[data-id="${fileObj.id}"]`);
+                    if (item) item.remove();
+                }
+            });
+
+            document.querySelectorAll('.lib-checkbox').forEach((cb, i) => {
+                cb.dataset.index = i;
+            });
+
+            if (!window.uploadedFiles.includes(window.selectedFileObj)) {
+                selectVideo(window.uploadedFiles.length > 0 ? window.uploadedFiles[0] : null);
+            }
+
+            if (selectAllLib) selectAllLib.checked = false;
+            updateBatchButtonState();
+            updateLibraryEmptyState();
+        });
+    }
 
     // 9. Sync/Toggles
     const batchSyncToggle = document.getElementById('batch-sync-toggle');
@@ -132,10 +180,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         colorDropdown.addEventListener('change', (e) => {
             const seg = getActiveSegment(window.selectedFileObj);
             if (!seg) return;
-            seg.numColors = parseInt(e.detail.value);
+            
+            // Extract only numbers (e.g., "256" from "256색 (고화질)")
+            const match = String(e.detail.value).match(/\d+/);
+            seg.numColors = match ? parseInt(match[0]) : 256;
+            
             if (window.selectedFileObj.isBatchSync) {
                 window.selectedFileObj.segments.forEach(s => s.numColors = seg.numColors);
             }
+            
+            syncUIToFile(window.selectedFileObj);
+            updateSizeEstimate();
         });
     }
 
@@ -149,8 +204,43 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (window.selectedFileObj.isBatchSync) {
                 window.selectedFileObj.segments.forEach(s => s.fps = seg.fps);
             }
+            updateSizeEstimate();
         });
     }
+
+    const speedSlider = document.getElementById('speed-slider');
+    if (speedSlider) {
+        speedSlider.addEventListener('input', (e) => {
+            const seg = getActiveSegment(window.selectedFileObj);
+            if (!seg) return;
+            seg.speed = parseFloat(e.target.value);
+            document.getElementById('speed-display').textContent = `${seg.speed.toFixed(1)}x`;
+            
+            // Sync to player
+            const mainPlayer = document.getElementById('main-player');
+            if (mainPlayer) mainPlayer.playbackRate = seg.speed;
+            if (window.selectedFileObj.isYoutube && window.ytPlayer) {
+                window.ytPlayer.setPlaybackRate(seg.speed);
+            }
+
+            if (window.selectedFileObj.isBatchSync) {
+                window.selectedFileObj.segments.forEach(s => s.speed = seg.speed);
+            }
+            syncUIToFile(window.selectedFileObj); // Update buttons
+        });
+    }
+
+    document.querySelectorAll('.speed-preset-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const seg = getActiveSegment(window.selectedFileObj);
+            if (!seg) return;
+            seg.speed = parseFloat(btn.dataset.speed);
+            if (window.selectedFileObj.isBatchSync) {
+                window.selectedFileObj.segments.forEach(s => s.speed = seg.speed);
+            }
+            syncUIToFile(window.selectedFileObj);
+        });
+    });
 
     // Custom Resolution Inputs
     const customW = document.getElementById('custom-width');
@@ -198,6 +288,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     s.aspectRatioLock = seg.aspectRatioLock;
                 });
             }
+            updateSizeEstimate();
         };
 
         customW.addEventListener('input', () => updateRatio('w'));
@@ -226,12 +317,46 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         });
     }
+
+    // 11. Keyframe Section Toggle
+    const kfToggleHeader = document.getElementById('kf-toggle-header');
+    const kfCollapsibleContent = document.getElementById('kf-collapsible-content');
+    const kfToggleIcon = document.getElementById('kf-toggle-icon');
     
+    if (kfToggleHeader && kfCollapsibleContent && kfToggleIcon) {
+        let isExpanded = false; // 기본 상태: 닫힘
+        kfToggleHeader.addEventListener('click', (e) => {
+            if (e.target.closest('#add-keyframe-btn')) return;
+
+            isExpanded = !isExpanded;
+            if (isExpanded) {
+                kfCollapsibleContent.style.maxHeight = '500px';
+                kfCollapsibleContent.style.opacity = '1';
+                kfCollapsibleContent.style.marginTop = '12px';
+                kfToggleIcon.style.transform = 'rotate(0deg)';
+            } else {
+                kfCollapsibleContent.style.maxHeight = '0';
+                kfCollapsibleContent.style.opacity = '0';
+                kfCollapsibleContent.style.marginTop = '0';
+                kfToggleIcon.style.transform = 'rotate(-90deg)';
+            }
+        });
+        
+        // 초기 상태 설정: 닫힌 상태
+        kfCollapsibleContent.style.transition = 'all 0.3s ease';
+        kfCollapsibleContent.style.maxHeight = '0';
+        kfCollapsibleContent.style.opacity = '0';
+        kfCollapsibleContent.style.marginTop = '0';
+        kfToggleIcon.style.transform = 'rotate(-90deg)';
+    }
+
     // Add filmstrip generation call
-    const mainPlayer = document.getElementById('main-player');
-    mainPlayer.addEventListener('loadedmetadata', () => {
-        if (window.selectedFileObj) generateFilmstrip(window.selectedFileObj);
-    });
+    const mainPlayerEl = document.getElementById('main-player');
+    if (mainPlayerEl) {
+        mainPlayerEl.addEventListener('loadedmetadata', () => {
+            if (window.selectedFileObj) generateFilmstrip(window.selectedFileObj);
+        });
+    }
 });
 
 function initSettingsModal() {

@@ -21,3 +21,6 @@ venv/
 dist/
 build/
 *.spec
+.yt_downloads/
+.yt_downloads/
+.proxies/

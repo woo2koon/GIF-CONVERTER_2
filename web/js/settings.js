@@ -9,6 +9,36 @@ function syncUIToFile(fileObj) {
     fpsSlider.value = seg.fps || 24;
     fpsDisplay.textContent = `${fpsSlider.value} FPS`;
 
+    // Speed
+    const speedSlider = document.getElementById('speed-slider');
+    const speedDisplay = document.getElementById('speed-display');
+    const speed = seg.speed || 1.0;
+    if (speedSlider) speedSlider.value = speed;
+    if (speedDisplay) speedDisplay.textContent = `${parseFloat(speed).toFixed(1)}x`;
+
+    // Update preset buttons
+    document.querySelectorAll('.speed-preset-btn').forEach(btn => {
+        const btnSpeed = parseFloat(btn.dataset.speed);
+        if (Math.abs(btnSpeed - speed) < 0.01) {
+            btn.classList.remove('bg-white', 'border-slate-200', 'text-slate-500');
+            btn.classList.add('bg-indigo-50', 'border-indigo-200', 'text-indigo-600');
+        } else {
+            btn.classList.add('bg-white', 'border-slate-200', 'text-slate-500');
+            btn.classList.remove('bg-indigo-50', 'border-indigo-200', 'text-indigo-600');
+        }
+    });
+
+    // Live preview speed
+    const mainPlayer = document.getElementById('main-player');
+    if (mainPlayer) {
+        mainPlayer.playbackRate = speed;
+    }
+    if (window.selectedFileObj && window.selectedFileObj.isYoutube && window.ytPlayer) {
+        if (typeof window.ytPlayer.setPlaybackRate === 'function') {
+            window.ytPlayer.setPlaybackRate(speed);
+        }
+    }
+
     // Resolution
     const resValue = seg.resolution || "중간 (720p)";
     const resItems = document.querySelectorAll('#res-dropdown .dropdown-item');
@@ -74,6 +104,12 @@ function syncUIToFile(fileObj) {
         cropControlsContainer.classList.remove('flex');
     }
     updateCropUI();
+    updateSizeEstimate();
+    
+    // 키프레임 목록 업데이트
+    if (window.updateKeyframeListUI) {
+        window.updateKeyframeListUI();
+    }
 }
 
 function updateCropOverlaySize() {
@@ -152,6 +188,92 @@ function updateCropUI() {
             }
         }
     }
+}
+
+function updateSizeEstimate() {
+    const container = document.getElementById('size-estimate-container');
+    const valueEl = document.getElementById('size-estimate-value');
+    if (!container || !valueEl || !window.selectedFileObj) return;
+
+    const seg = getActiveSegment(window.selectedFileObj);
+    if (!seg) {
+        container.classList.add('opacity-0');
+        return;
+    }
+
+    // 1. Get Base Data
+    const duration = Math.max(0.1, (seg.end - seg.start) / (seg.speed || 1.0));
+    const fps = seg.fps || 24;
+    
+    let width = window.selectedFileObj.width;
+    let height = window.selectedFileObj.height;
+
+    // Use cropped dimensions if active (Check global crop state for real-time update)
+    if (window.isCropMode && window.cropBoxState) {
+        width = Math.round(width * (window.cropBoxState.w / 100));
+        height = Math.round(height * (window.cropBoxState.h / 100));
+    }
+
+    // Adjust for output resolution presets
+    const res = (seg.resolution || "720P").toUpperCase();
+    
+    if (res.includes("직접 설정") && seg.customWidth && seg.customHeight) {
+        width = seg.customWidth;
+        height = seg.customHeight;
+    } else if (res.includes("480P")) {
+        if (height > 480) {
+            const scale = 480 / height;
+            width = Math.round(width * scale);
+            height = 480;
+        }
+    } else if (res.includes("720P")) {
+        if (height > 720) {
+            const scale = 720 / height;
+            width = Math.round(width * scale);
+            height = 720;
+        }
+    } else if (res.includes("원본")) {
+        // Keep original/cropped dimensions
+    }
+
+    // 2. Calculation Formula (Empirical GIF model)
+    // Base complexity factor
+    let complexityFactor = 0.22; 
+    
+    if (window.selectedFileObj.bitrate > 0 && window.selectedFileObj.width > 0) {
+        const area = window.selectedFileObj.width * window.selectedFileObj.height;
+        const bpp = (window.selectedFileObj.bitrate * 1024) / (area * (window.selectedFileObj.fps || 30));
+        const bppFactor = Math.sqrt(bpp / 0.15);
+        complexityFactor *= Math.max(0.7, Math.min(1.8, bppFactor));
+    }
+    
+    // Speed Impact: Slower speeds have much smaller per-frame changes.
+    // User tests show total size is almost constant across speeds for the same content.
+    const speed = seg.speed || 1.0;
+    const speedCorrection = Math.pow(speed, 0.9); // Higher power means total size stays more constant when speed changes
+    complexityFactor *= speedCorrection;
+
+    const totalPixels = width * height * fps * duration;
+    
+    // Parse numColors
+    let numColors = 256;
+    if (seg.numColors) {
+        const match = String(seg.numColors).match(/\d+/);
+        if (match) numColors = parseInt(match[0]);
+    }
+    
+    // Factors
+    const colorFactor = Math.pow(numColors / 256, 0.5); 
+    const ditherFactor = seg.useDither ? 1.8 : 1.0; 
+    
+    let estimatedBytes = totalPixels * complexityFactor * colorFactor * ditherFactor;
+    
+    // Convert to MB
+    const estimatedMB = estimatedBytes / (1024 * 1024);
+    
+    // 3. UI Update
+    valueEl.textContent = estimatedMB.toFixed(1);
+    container.classList.remove('opacity-0');
 }
 
 function initCropLogic() {
@@ -262,6 +384,7 @@ function initCropLogic() {
 
     const onMouseDown = (e) => {
         if (!window.isCropMode) return;
+        
         const handle = e.target.closest('.crop-handle');
         const box = e.target.closest('#crop-box');
         
@@ -295,8 +418,9 @@ function initCropLogic() {
     };
 
     const onMouseMove = (e) => {
-        if (!isDragging) return;
+        if (!isDragging || !window.isCropMode) return;
         
+
         const overlay = document.getElementById('crop-overlay');
         const rect = overlay.getBoundingClientRect();
         const dx = ((e.clientX - startX) / rect.width) * 100;

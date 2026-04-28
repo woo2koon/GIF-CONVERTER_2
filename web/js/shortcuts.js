@@ -84,6 +84,7 @@ function initShortcuts() {
                     }
                 }
                 updateTrimUI();
+                updateSizeEstimate();
                 break;
 
             case 'KeyO':
@@ -103,6 +104,7 @@ function initShortcuts() {
                     }
                 }
                 updateTrimUI();
+                updateSizeEstimate();
                 break;
 
             case 'KeyX':
@@ -117,6 +119,7 @@ function initShortcuts() {
                     window.selectedSegmentObj.start = 0;
                     window.selectedSegmentObj.end = duration;
                     updateTrimUI();
+                    updateSizeEstimate();
                 }
                 break;
 
