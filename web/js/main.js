@@ -241,7 +241,12 @@ function initSettingsModal() {
     const confirmBtn = document.getElementById('settings-confirm-btn');
     const changePathBtn = document.getElementById('change-save-path-btn');
     
-    if (openBtn) openBtn.addEventListener('click', () => modal.classList.remove('hidden'));
+    if (openBtn) {
+        openBtn.addEventListener('click', () => {
+            modal.classList.remove('hidden');
+            refreshCacheInfo();
+        });
+    }
     if (closeBtn) closeBtn.addEventListener('click', () => modal.classList.add('hidden'));
     if (confirmBtn) confirmBtn.addEventListener('click', () => modal.classList.add('hidden'));
     
@@ -250,6 +255,65 @@ function initSettingsModal() {
             const newDir = await eel.select_save_directory()();
             if (newDir) {
                 document.getElementById('current-save-path').textContent = newDir;
+            }
+        });
+    }
+
+    const refreshCacheInfo = async () => {
+        const info = await eel.get_cache_info()();
+        const formatSize = (bytes) => (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        
+        const totalEl = document.getElementById('total-cache-size');
+        const proxyEl = document.getElementById('proxy-cache-size');
+        const ytEl = document.getElementById('yt-cache-size');
+        
+        if (totalEl) totalEl.textContent = formatSize(info.total_size);
+        if (proxyEl) proxyEl.textContent = formatSize(info.proxy_size);
+        if (ytEl) ytEl.textContent = formatSize(info.yt_size);
+    };
+
+    const clearProxyBtn = document.getElementById('clear-proxy-btn');
+    if (clearProxyBtn) {
+        clearProxyBtn.addEventListener('click', async () => {
+            const confirmed = await showCustomConfirm({
+                title: "프록시 파일 삭제",
+                message: "생성된 모든 미리보기 프록시 파일을 삭제하시겠습니까? <br><b class='text-rose-600'>원본 영상에는 영향을 주지 않습니다.</b>",
+                okText: "파일 삭제",
+                okColor: "rose",
+                icon: "delete_sweep"
+            });
+            if (confirmed) {
+                const res = await eel.clear_proxy_cache()();
+                if (res.status === 'success') {
+                    showToast('프록시 파일이 정리되었습니다.');
+                    refreshCacheInfo();
+                    window.uploadedFiles.forEach(f => { f.proxyPath = null; f.isProxying = false; });
+                    document.querySelectorAll('.proxy-badge').forEach(b => b.classList.add('hidden'));
+                    if (window.selectedFileObj) {
+                        const badge = document.getElementById('proxy-badge');
+                        if (badge) badge.classList.add('hidden');
+                    }
+                }
+            }
+        });
+    }
+
+    const clearYtBtn = document.getElementById('clear-yt-btn');
+    if (clearYtBtn) {
+        clearYtBtn.addEventListener('click', async () => {
+            const confirmed = await showCustomConfirm({
+                title: "유튜브 다운로드 삭제",
+                message: "유튜브에서 직접 다운로드한 영상 파일들을 삭제하시겠습니까? <br><b class='text-rose-600'>라이브러리의 유튜브 항목이 재생되지 않을 수 있습니다.</b>",
+                okText: "다운로드 삭제",
+                okColor: "rose",
+                icon: "download_for_offline"
+            });
+            if (confirmed) {
+                const res = await eel.clear_youtube_cache()();
+                if (res.status === 'success') {
+                    showToast('유튜브 다운로드 파일이 정리되었습니다.');
+                    refreshCacheInfo();
+                }
             }
         });
     }
@@ -262,14 +326,22 @@ function initYouTubeModal() {
     const modal = document.getElementById('youtube-modal');
     
     const show = () => {
-        modal.classList.remove('pointer-events-none', 'opacity-0', 'hidden');
-        modal.querySelector('.relative').classList.remove('scale-95');
+        if (typeof showModal === 'function') {
+            showModal('youtube-modal');
+        } else {
+            modal.classList.remove('pointer-events-none', 'opacity-0', 'hidden');
+            modal.querySelector('.relative').classList.remove('scale-95');
+        }
         const input = document.getElementById('youtube-url-input');
         if (input) { input.value = ''; input.focus(); }
     };
     const hide = () => {
-        modal.classList.add('pointer-events-none', 'opacity-0');
-        modal.querySelector('.relative').classList.add('scale-95');
+        if (typeof hideModal === 'function') {
+            hideModal('youtube-modal');
+        } else {
+            modal.classList.add('pointer-events-none', 'opacity-0');
+            modal.querySelector('.relative').classList.add('scale-95');
+        }
     };
     
     if (openBtn) openBtn.addEventListener('click', show);

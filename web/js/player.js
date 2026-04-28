@@ -88,7 +88,27 @@ function selectVideo(fileObj) {
     }
 
 
-    document.getElementById('header-resolution').textContent = "로딩 중...";
+    const updateMetadataDisplay = () => {
+        const durationStr = formatTime(fileObj.duration);
+        const resStr = `${fileObj.width}×${fileObj.height}`;
+        const isYT = fileObj.isYoutube || fileObj.isDownloadedYoutube;
+        const ext = isYT ? 'YT' : (fileObj.name.split('.').pop() || '').toUpperCase();
+        const fpsStr = (fileObj.fps || 30).toFixed(2);
+        const infoText = `${resStr} • ${ext} • ${durationStr} • ${fpsStr} FPS`;
+        
+        const headerResText = document.getElementById('header-resolution-text');
+        if (headerResText) headerResText.textContent = infoText;
+        else {
+            const hRes = document.getElementById('header-resolution');
+            if (hRes) hRes.textContent = infoText;
+        }
+        
+        const totalTimeDisplay = document.getElementById('total-time-display');
+        if (totalTimeDisplay) totalTimeDisplay.textContent = durationStr;
+    };
+
+    updateMetadataDisplay(); // 즉시 정보 업데이트
+
     const ytContainer = document.getElementById('yt-player-container');
     
     // 플레이어 스위칭
@@ -105,24 +125,13 @@ function selectVideo(fileObj) {
             });
         }
         
-        // YouTube 정보 표시 (IFrame API는 비동기로 로드되므로 메타데이터 수동 설정)
         setTimeout(() => {
             updateTimelineUI();
             updateCropOverlaySize();
-            document.getElementById('total-time-display').textContent = formatTime(fileObj.duration);
-            
-            const totalSec = Math.floor(fileObj.duration);
-            const durationStr = formatTime(totalSec);
-            const resStr = `${fileObj.width}×${fileObj.height} (YouTube)`;
-            document.getElementById('header-resolution').textContent =
-                `${resStr} • YT • ${durationStr} • ${fileObj.fps.toFixed(2)} FPS`;
-
+            updateMetadataDisplay();
             syncUIToFile(fileObj);
-            
             const pBadge = document.getElementById('proxy-badge');
-            if (pBadge) {
-                pBadge.classList.add('hidden');
-            }
+            if (pBadge) pBadge.classList.add('hidden');
         }, 500);
 
     } else {
@@ -142,19 +151,7 @@ function selectVideo(fileObj) {
                 updatePlayheadUI(window.selectedSegmentObj.start);
             }
             
-            document.getElementById('total-time-display').textContent = formatTime(fileObj.duration);
-            
-            const resStr = `${fileObj.width}×${fileObj.height}`;
-            const ext = (fileObj.name.split('.').pop() || '').toUpperCase();
-            const durationStr = formatTime(fileObj.duration);
-            const headerResText = document.getElementById('header-resolution-text');
-            if (headerResText) {
-                headerResText.textContent = `${resStr} • ${ext} • ${durationStr} • ${fileObj.fps.toFixed(2)} FPS`;
-            } else {
-                document.getElementById('header-resolution').textContent =
-                    `${resStr} • ${ext} • ${durationStr} • ${fileObj.fps.toFixed(2)} FPS`;
-            }
-
+            updateMetadataDisplay();
             syncUIToFile(fileObj);
             
             const pBadge = document.getElementById('proxy-badge');
@@ -508,10 +505,32 @@ window.onYouTubeIframeAPIReady = function() {
         },
         events: {
             'onReady': onPlayerReady,
-            'onStateChange': onPlayerStateChange
+            'onStateChange': onPlayerStateChange,
+            'onError': onPlayerError
         }
     });
 };
+
+function onPlayerError(event) {
+    console.error("[YT API] Player Error:", event.data);
+    // 101: The owner of the requested video does not allow it to be played in embedded players.
+    // 150: Same as 101.
+    if (event.data === 101 || event.data === 150) {
+        if (window.selectedFileObj && window.selectedFileObj.isYoutube) {
+            const name = window.selectedFileObj.name;
+            const message = "이 영상은 유튜브 정책에 의해 외부 재생(Embedding)이 차단되었습니다. 계속하려면 영상을 다운로드해야 합니다.";
+            const url = window.selectedFileObj.url;
+            
+            console.log("[JS] Player error detected for URL:", url);
+            
+            if (url && typeof showYoutubeDownloadModal === 'function') {
+                showYoutubeDownloadModal(name, message, url);
+            } else {
+                console.error("[JS] Cannot trigger download modal: url is missing or function not found");
+            }
+        }
+    }
+}
 
 function onPlayerReady(event) {
     window.isYTReady = true;

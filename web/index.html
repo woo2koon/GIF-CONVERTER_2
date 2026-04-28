@@ -428,7 +428,7 @@
                             <div class="absolute inset-0 border-4 border-t-indigo-500 rounded-full animate-spin"></div>
                         </div>
                         <div class="flex flex-col items-center gap-1">
-                            <span class="text-white font-bold text-lg tracking-tight">WEBM 파일 프록시 변환 중...</span>
+                            <span class="text-white font-bold text-lg tracking-tight">프록시 변환 중...</span>
                             <span id="proxy-overlay-progress" class="text-indigo-400 font-bold text-2xl">0%</span>
                         </div>
                         <p class="text-white/40 text-xs mt-2">고해상도 미리보기를 준비하고 있습니다.</p>
@@ -785,7 +785,7 @@
     </div>
 
     <!-- Custom Confirmation Modal -->
-    <div id="confirm-modal" class="hidden fixed inset-0 z-[10000] flex items-center justify-center p-6">
+    <div id="confirm-modal" class="hidden fixed inset-0 z-[12000] flex items-center justify-center p-6">
         <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
         <div class="relative bg-white w-full max-w-sm rounded-3xl shadow-2xl border border-white/20 p-8 flex flex-col items-center text-center animate-in fade-in zoom-in duration-200">
             <div class="w-16 h-16 bg-indigo-50 rounded-full flex items-center justify-center mb-6">
@@ -851,6 +851,40 @@
                         경로 변경
                     </button>
                 </div>
+
+                <div class="space-y-4 pt-4 border-t border-slate-100">
+                    <div class="flex items-center justify-between text-slate-700 font-bold">
+                        <div class="flex items-center gap-2">
+                            <span class="material-symbols-outlined text-rose-500">cleaning_services</span>
+                            <span>캐시 삭제</span>
+                        </div>
+                        <span id="total-cache-size" class="text-[10px] bg-slate-100 px-2 py-0.5 rounded-full text-slate-500">0 MB</span>
+                    </div>
+
+                    <!-- Proxy Cache -->
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between px-1">
+                            <span class="text-[11px] font-bold text-slate-600">미리보기 프록시</span>
+                            <span id="proxy-cache-size" class="text-[10px] text-slate-400">0 MB</span>
+                        </div>
+                        <button id="clear-proxy-btn" class="w-full py-2.5 bg-slate-50 text-slate-600 font-bold rounded-xl hover:bg-rose-50 hover:text-rose-600 transition-all border border-slate-200 hover:border-rose-100 flex items-center justify-center gap-2 group">
+                            <span class="material-symbols-outlined text-sm group-hover:animate-bounce">delete</span>
+                            프록시 파일 삭제
+                        </button>
+                    </div>
+
+                    <!-- YouTube Cache -->
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between px-1">
+                            <span class="text-[11px] font-bold text-slate-600">유튜브 다운로드</span>
+                            <span id="yt-cache-size" class="text-[10px] text-slate-400">0 MB</span>
+                        </div>
+                        <button id="clear-yt-btn" class="w-full py-2.5 bg-slate-50 text-slate-600 font-bold rounded-xl hover:bg-rose-50 hover:text-rose-600 transition-all border border-slate-200 hover:border-rose-100 flex items-center justify-center gap-2 group">
+                            <span class="material-symbols-outlined text-sm group-hover:animate-bounce">download_for_offline</span>
+                            유튜브 다운로드 삭제
+                        </button>
+                    </div>
+                </div>
                 
                 <div class="pt-4 border-t border-slate-100 flex justify-end">
                     <button id="settings-confirm-btn" class="px-6 py-2.5 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-md">
@@ -861,7 +895,7 @@
         </div>
     </div>
     <!-- YouTube Modal -->
-    <div id="youtube-modal" class="fixed inset-0 z-[10000] flex items-center justify-center p-6 pointer-events-none opacity-0 transition-all duration-300">
+    <div id="youtube-modal" class="hidden fixed inset-0 z-[10000] flex items-center justify-center p-6 pointer-events-none opacity-0 transition-all duration-300">
         <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
         <div class="relative bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden transform scale-95 transition-all duration-300">
             <div class="p-8">
@@ -895,6 +929,50 @@
                 </div>
             </div>
         </div>
+    </div>
+
+    <!-- YouTube Download Confirmation Modal -->
+    <div id="yt-download-modal" class="hidden fixed inset-0 z-[11000] flex items-center justify-center p-6">
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
+        <div class="relative bg-white w-full max-w-sm rounded-3xl shadow-2xl border border-white/20 p-8 flex flex-col items-center text-center animate-in fade-in zoom-in duration-200">
+            <div class="w-16 h-16 bg-rose-50 rounded-full flex items-center justify-center mb-6">
+                <span class="material-symbols-outlined text-rose-500 text-3xl">download_for_offline</span>
+            </div>
+            <h3 id="yt-download-title" class="text-xl font-black text-slate-800 mb-2">다운로드가 필요한 영상</h3>
+            <p id="yt-download-msg" class="text-sm text-slate-500 font-medium leading-relaxed mb-8">
+                이 영상은 유튜브 정책에 의해 직접 재생이 제한되었습니다. <br><b class="text-rose-600">고화질로 다운로드하여 변환을 진행하시겠습니까?</b>
+            </p>
+            <div class="flex gap-3 w-full">
+                <button id="yt-download-cancel-btn" class="flex-1 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-2xl transition-all active:scale-95">
+                    취소
+                </button>
+                <button id="yt-download-ok-btn" class="flex-1 py-3.5 bg-rose-500 hover:bg-rose-600 text-white font-bold rounded-2xl shadow-lg shadow-rose-200 transition-all active:scale-95">
+                    다운로드 시작
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- YouTube Download Progress Overlay -->
+    <div id="yt-download-overlay" class="fixed inset-0 bg-black/80 z-[12000] flex flex-col items-center justify-center gap-6 hidden">
+        <div class="relative w-24 h-24">
+            <div class="absolute inset-0 border-4 border-white/10 rounded-full"></div>
+            <div id="yt-download-spinner" class="absolute inset-0 border-4 border-t-rose-500 rounded-full animate-spin"></div>
+            <div class="absolute inset-0 flex items-center justify-center p-5">
+                <svg viewBox="0 0 28 20" class="w-full h-full drop-shadow-sm" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M27.4 3.1a3.5 3.5 0 0 0-2.5-2.5C22.8 0 14 0 14 0S5.2 0 3.1.6A3.5 3.5 0 0 0 .6 3.1C0 5.2 0 9.6 0 9.6s0 4.4.6 6.5a3.5 3.5 0 0 0 2.5 2.5C5.2 19.2 14 19.2 14 19.2s8.8 0 10.9-.6a3.5 3.5 0 0 0 2.5-2.5c.6-2.1.6-6.5.6-6.5s0-4.4-.6-6.5z" fill="#FF0000"/>
+                    <path d="M11.2 13.7V5.5l7.2 4.1-7.2 4.1z" fill="#fff"/>
+                </svg>
+            </div>
+        </div>
+        <div class="flex flex-col items-center gap-2">
+            <span class="text-white font-bold text-xl tracking-tight">유튜브 고화질 영상 다운로드 중...</span>
+            <div class="w-64 h-2 bg-white/10 rounded-full overflow-hidden mt-2">
+                <div id="yt-download-bar" class="h-full bg-rose-500 transition-all duration-300" style="width: 0%"></div>
+            </div>
+            <span id="yt-download-progress-text" class="text-rose-400 font-bold text-2xl mt-1">0%</span>
+        </div>
+        <p class="text-white/40 text-xs">최고 화질을 위해 비디오와 오디오를 병합하고 있습니다.</p>
     </div>
 </body>
 

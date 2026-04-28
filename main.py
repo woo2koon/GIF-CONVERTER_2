@@ -9,12 +9,13 @@ import time
 # Import internal modules
 from backend.utils.config_manager import app_config, save_config, DEFAULT_SAVE_DIR
 from backend.services.youtube_service import get_youtube_info as fetch_youtube_info
-from backend.services.video_service import get_file_info as fetch_file_info, start_proxy_generation
+from backend.services.video_service import get_file_info as fetch_file_info, start_proxy_generation, stop_proxy_generation
 from backend.services.converter_service import start_conversion
 from backend.utils.os_utils import get_os_info as fetch_os_info, open_folder, open_file_location as fetch_file_location, pick_videos as fetch_videos, select_save_directory as fetch_save_dir
 from backend.utils.process_manager import cleanup_processes, kill_orphaned_ffmpegs
+from backend.services.youtube_service import download_youtube_video as fetch_youtube_download
 
-VERSION = "1.4.0"
+VERSION = "1.5.1"
 
 # pywebview 전역 참조
 try:
@@ -23,10 +24,12 @@ except ImportError:
     webview = None
 _webview_window = None 
 
-# 프록시 저장용 폴더 설정
+# 프록시 및 유튜브 다운로드 폴더 설정
 PROXY_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".proxies")
-if not os.path.exists(PROXY_DIR):
-    os.makedirs(PROXY_DIR, exist_ok=True)
+YT_DL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".yt_downloads")
+for d in [PROXY_DIR, YT_DL_DIR]:
+    if not os.path.exists(d):
+        os.makedirs(d, exist_ok=True)
 
 # Initialize Eel
 eel.init('web')
@@ -39,19 +42,69 @@ def get_os_info():
 def get_clipboard_text():
     """시스템 클립보드 텍스트를 읽어옵니다."""
     try:
-        import tkinter as tk
-        root = tk.Tk()
-        root.withdraw() # 창 숨기기
-        text = root.clipboard_get()
-        root.destroy()
-        return text
+        if platform.system() == 'Darwin':
+            import subprocess
+            return subprocess.check_output(['pbpaste'], text=True)
+        else:
+            import tkinter as tk
+            root = tk.Tk()
+            root.withdraw() # 창 숨기기
+            text = root.clipboard_get()
+            root.destroy()
+            return text
     except Exception as e:
         print(f"[PY] 클립보드 읽기 실패: {e}")
         return ""
 
 @eel.expose
 def get_youtube_info(url):
-    return fetch_youtube_info(url)
+    info = fetch_youtube_info(url)
+    # 다운로드 폴더에서 이미 받은 적이 있는 파일인지 확인
+    if info.get("status") in ["success", "requires_download"]:
+        video_id = info.get("video_id")
+        if video_id:
+            global YT_DL_DIR
+            if os.path.exists(YT_DL_DIR):
+                for f in os.listdir(YT_DL_DIR):
+                    if f.startswith("._"): continue # macOS 숨김 파일 제외
+                    if f"[{video_id}]" in f:
+                        full_path = os.path.join(YT_DL_DIR, f)
+                        # 파일 정보 및 프록시 존재 여부 추가 확인
+                        file_info = fetch_file_info(full_path, PROXY_DIR)
+                        if file_info.get("status") == "success":
+                            info.update({
+                                "local_path": full_path,
+                                "path": full_path,
+                                "proxy_path": file_info.get("proxy_path"),
+                                "duration": file_info.get("duration"),
+                                "width": file_info.get("width"),
+                                "height": file_info.get("height"),
+                                "fps": file_info.get("fps"),
+                                "size": file_info.get("size"),
+                                "status": "success"
+                            })
+                            print(f"[Backend] 기존 다운로드 파일 및 정보 발견: {full_path} (Proxy: {file_info.get('proxy_path')})")
+                        else:
+                            info["local_path"] = full_path
+                            info["status"] = "success"
+                        break
+    return info
+
+@eel.expose
+def download_youtube_video(url):
+    """유튜브 영상을 로컬로 다운로드합니다."""
+    print(f"[Backend] download_youtube_video 호출됨: {url}")
+    global YT_DL_DIR
+    def progress_callback(progress):
+        eel.update_youtube_download_progress(progress)
+    
+    try:
+        result = fetch_youtube_download(url, YT_DL_DIR, progress_callback)
+        print(f"[Backend] download_youtube_video 결과: {result.get('status')}")
+        return result
+    except Exception as e:
+        print(f"[Backend] download_youtube_video 오류: {e}")
+        return {"status": "error", "message": str(e)}
 
 @eel.expose
 def get_save_directory():
@@ -59,7 +112,8 @@ def get_save_directory():
 
 @eel.expose
 def select_save_directory():
-    selected_dir = fetch_save_dir()
+    global _webview_window
+    selected_dir = fetch_save_dir(_webview_window)
     if selected_dir:
         app_config["save_dir"] = selected_dir
         save_config(app_config)
@@ -177,6 +231,10 @@ def request_proxy(path, file_id):
     return start_proxy_generation(path, file_id, PROXY_DIR, eel.update_proxy_progress, eel.proxy_completed)
 
 @eel.expose
+def cancel_proxy(file_id):
+    return stop_proxy_generation(file_id)
+
+@eel.expose
 def open_downloads_folder():
     save_dir = app_config.get("save_dir", DEFAULT_SAVE_DIR)
     return open_folder(save_dir)
@@ -185,13 +243,46 @@ def open_downloads_folder():
 def open_file_location(path):
     return fetch_file_location(path)
 
+def get_dir_size(path):
+    total = 0
+    try:
+        if os.path.exists(path):
+            for entry in os.scandir(path):
+                if entry.is_file():
+                    total += entry.stat().st_size
+                elif entry.is_dir():
+                    total += get_dir_size(entry.path)
+    except Exception:
+        pass
+    return total
+
+@eel.expose
+def get_cache_info():
+    proxy_size = get_dir_size(PROXY_DIR)
+    yt_size = get_dir_size(YT_DL_DIR)
+    return {
+        "proxy_size": proxy_size,
+        "yt_size": yt_size,
+        "total_size": proxy_size + yt_size
+    }
+
 @eel.expose
 def clear_proxy_cache():
     try:
         if os.path.exists(PROXY_DIR):
             shutil.rmtree(PROXY_DIR)
             os.makedirs(PROXY_DIR, exist_ok=True)
-        return {"status": "success"}
+        return {"status": "success", "new_size": 0}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@eel.expose
+def clear_youtube_cache():
+    try:
+        if os.path.exists(YT_DL_DIR):
+            shutil.rmtree(YT_DL_DIR)
+            os.makedirs(YT_DL_DIR, exist_ok=True)
+        return {"status": "success", "new_size": 0}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 

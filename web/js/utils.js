@@ -104,3 +104,64 @@ function showToast(message, duration = 3000) {
         setTimeout(() => toast.remove(), 500);
     }, duration);
 }
+/**
+ * 커스텀 확인 모달창을 띄웁니다.
+ */
+function showCustomConfirm({ title, message, okText, okColor, icon, iconColor }) {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('confirm-modal');
+        const titleEl = document.getElementById('confirm-title');
+        const msgEl = document.getElementById('confirm-message');
+        const okBtn = document.getElementById('confirm-ok-btn');
+        const cancelBtn = document.getElementById('confirm-cancel-btn');
+        const iconEl = modal.querySelector('.material-symbols-outlined');
+        const iconContainer = iconEl.parentElement;
+
+        if (!modal || !titleEl || !msgEl || !okBtn || !cancelBtn) {
+            resolve(confirm(message));
+            return;
+        }
+
+        // 컨텐츠 설정
+        titleEl.textContent = title || "확인";
+        msgEl.innerHTML = message || "";
+        okBtn.textContent = okText || "확인";
+        
+        if (icon) iconEl.textContent = icon;
+        
+        // 색상 초기화 및 설정
+        okBtn.className = okBtn.className.replace(/bg-\w+-\d+/g, '').replace(/hover:bg-\w+-\d+/g, '').replace(/shadow-\w+-\d+/g, '');
+        if (okColor === 'rose') {
+            okBtn.classList.add('bg-rose-500', 'hover:bg-rose-600', 'shadow-rose-200');
+            iconContainer.className = "w-16 h-16 bg-rose-50 rounded-full flex items-center justify-center mb-6";
+            if (iconEl) iconEl.className = "material-symbols-outlined text-rose-500 text-3xl";
+        } else {
+            okBtn.classList.add('bg-indigo-600', 'hover:bg-indigo-700', 'shadow-indigo-200');
+            iconContainer.className = "w-16 h-16 bg-indigo-50 rounded-full flex items-center justify-center mb-6";
+            if (iconEl) iconEl.className = "material-symbols-outlined text-indigo-500 text-3xl";
+        }
+
+        // 표시
+        modal.classList.remove('hidden');
+        
+        const handleOk = () => {
+            modal.classList.add('hidden');
+            cleanup();
+            resolve(true);
+        };
+        
+        const handleCancel = () => {
+            modal.classList.add('hidden');
+            cleanup();
+            resolve(false);
+        };
+        
+        const cleanup = () => {
+            okBtn.removeEventListener('click', handleOk);
+            cancelBtn.removeEventListener('click', handleCancel);
+        };
+        
+        okBtn.addEventListener('click', handleOk);
+        cancelBtn.addEventListener('click', handleCancel);
+    });
+}

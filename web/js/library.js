@@ -30,17 +30,17 @@ function addLibraryItem(fileObj) {
                         <span class="marquee-text font-semibold text-on-surface">${fileObj.name}</span>
                     </div>
                     <div class="flex items-center gap-2 mt-0.5 min-h-[20px]">
-                        <div class="file-metadata flex items-center gap-1">
-                            <span class="text-xs text-slate-500 font-medium">${fileObj.isYoutube ? (fileObj.author || 'YouTube') : sizeMb + ' MB'}</span>
-                            <div class="flex items-center gap-1.5">
-                                ${fileObj.isYoutube ? `
+                        <div class="file-metadata flex items-center gap-1 overflow-hidden">
+                            <span class="text-xs text-slate-500 font-medium truncate max-w-[100px]">${fileObj.isYoutube || fileObj.isDownloadedYoutube ? (fileObj.author || 'YouTube') : sizeMb + ' MB'}</span>
+                            <div class="flex items-center gap-1.5 flex-shrink-0">
+                                ${(fileObj.isYoutube || fileObj.isDownloadedYoutube) ? `
                                 <span class="flex items-center" style="line-height:0;margin-top:-2px" title="YouTube">
                                     <svg viewBox="0 0 28 20" width="16" height="11" style="vertical-align:middle" xmlns="http://www.w3.org/2000/svg">
                                         <path d="M27.4 3.1a3.5 3.5 0 0 0-2.5-2.5C22.8 0 14 0 14 0S5.2 0 3.1.6A3.5 3.5 0 0 0 .6 3.1C0 5.2 0 9.6 0 9.6s0 4.4.6 6.5a3.5 3.5 0 0 0 2.5 2.5C5.2 19.2 14 19.2 14 19.2s8.8 0 10.9-.6a3.5 3.5 0 0 0 2.5-2.5c.6-2.1.6-6.5.6-6.5s0-4.4-.6-6.5z" fill="#FF0000"/>
                                         <path d="M11.2 13.7V5.5l7.2 4.1-7.2 4.1z" fill="#fff"/>
                                     </svg>
                                 </span>` : `<span class="bg-slate-100 text-slate-500 px-1 py-0 rounded text-[9px] font-bold uppercase tracking-wider border border-slate-200/50 leading-tight">${format}</span>`}
-                                <span class="proxy-badge bg-indigo-50 text-indigo-600 px-1 py-0 rounded text-[9px] font-black uppercase tracking-widest border border-indigo-100 leading-tight ${fileObj.proxyPath ? '' : 'hidden'}">Proxy</span>
+                                <span class="proxy-badge bg-indigo-50 text-indigo-600 px-1 py-0 rounded text-[9px] font-black uppercase tracking-widest border border-indigo-100 leading-tight ${fileObj.proxyPath || fileObj.isDownloadedYoutube ? '' : 'hidden'}">Proxy</span>
                             </div>
                         </div>
                         <div class="proxy-status-container">
@@ -94,23 +94,45 @@ function addLibraryItem(fileObj) {
     });
 
     const deleteBtn = itemDiv.querySelector('.delete-file-btn');
-    deleteBtn.addEventListener('click', (e) => {
+    deleteBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
+        
+        const confirmed = await showCustomConfirm({
+            title: "목록에서 제거",
+            message: `<b>${fileObj.name}</b>을(를) 목록에서 제거하시겠습니까?<br><b class="text-indigo-600">원본 파일은 안전하게 보관됩니다.</b>`,
+            okText: "제거하기",
+            icon: "list_alt"
+        });
+
+        if (!confirmed) return;
+
+        // 프록시 생성 중인 경우 백엔드에 취소 신호 발송
+        if (window.eel && typeof eel.cancel_proxy === 'function') {
+            eel.cancel_proxy(fileObj.id)();
+        }
+
         const idx = window.uploadedFiles.indexOf(fileObj);
         if (idx > -1) {
             window.uploadedFiles.splice(idx, 1);
         }
         itemDiv.remove();
+        
         document.querySelectorAll('.lib-checkbox').forEach((cb, i) => {
             cb.dataset.index = i;
         });
+
+        // 현재 선택된 파일인 경우 UI 초기화
         if (window.selectedFileObj === fileObj) {
+            const overlay = document.getElementById('proxy-overlay');
+            if (overlay) overlay.classList.add('hidden');
+            
             if (window.uploadedFiles.length > 0) {
                 selectVideo(window.uploadedFiles[0]);
             } else {
                 selectVideo(null);
             }
         }
+        
         updateBatchButtonState();
         updateLibraryEmptyState();
     });

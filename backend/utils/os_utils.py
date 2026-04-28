@@ -56,10 +56,10 @@ def pick_videos(webview_window=None):
 
         # 2. AppleScript (Fallback)
         script = '''
-        set out to ""
         tell current application
             activate
-            set theFiles to choose file with prompt "비디오 파일 선택" of type {"public.movie", "org.webmproject.webm", "mp4", "mov", "avi", "mkv", "wmv"} with multiple selections allowed
+            set theFiles to choose file with prompt "비디오 파일을 선택하세요" of type {"public.movie", "org.webmproject.webm", "mp4", "mov", "avi", "mkv", "wmv"} with multiple selections allowed
+            set out to ""
             repeat with aFile in theFiles
                 set out to out & POSIX path of aFile & "\n"
             end repeat
@@ -69,8 +69,8 @@ def pick_videos(webview_window=None):
         try:
             print("[Backend] AppleScript 호출 시도 (Fallback)...")
             process = subprocess.Popen(['osascript', '-e', script], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            stdout, _ = process.communicate()
-            if stdout.strip():
+            stdout, stderr = process.communicate()
+            if process.returncode == 0 and stdout.strip():
                 paths = stdout.strip().split('\n')
                 print(f"[Backend] AppleScript 파일 선택 성공: {len(paths)}개")
                 return paths
@@ -97,15 +97,44 @@ def pick_videos(webview_window=None):
             print(f"[Backend] Tkinter 예외 발생: {str(e)}")
             return []
 
-def select_save_directory():
+def select_save_directory(webview_window=None):
+    """지정한 저장 폴더를 선택하는 다이얼로그를 띄웁니다."""
+    print(f"\n[Backend] select_save_directory 호출됨 (OS: {platform.system()})")
     try:
         if platform.system() == 'Darwin':
-            script = 'POSIX path of (choose folder with prompt "저장 폴더를 선택하세요")'
-            process = subprocess.Popen(['osascript', '-e', script], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            stdout, _ = process.communicate()
-            if process.returncode == 0:
-                selected_dir = stdout.strip()
-                return selected_dir
+            # 1. AppleScript (Proved to be more reliable on Mac for folder picking)
+            print("[Backend] AppleScript folder picker 호출...")
+            script = '''
+            tell current application
+                activate
+                set theFolder to choose folder with prompt "저장 폴더를 선택하세요"
+                POSIX path of theFolder
+            end tell
+            '''
+            try:
+                process = subprocess.Popen(['osascript', '-e', script], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                stdout, stderr = process.communicate()
+                if process.returncode == 0:
+                    selected_dir = stdout.strip()
+                    print(f"[Backend] AppleScript 폴더 선택 성공: {selected_dir}")
+                    return selected_dir
+            except Exception as as_e:
+                print(f"[Backend] AppleScript 폴더 다이얼로그 실패: {as_e}")
+
+            # 2. pywebview (Fallback)
+            if webview_window is not None:
+                try:
+                    import webview
+                    print("[Backend] pywebview directory dialog 호출...")
+                    result = webview_window.create_file_dialog(
+                        webview.FileDialog.DIRECTORY
+                    )
+                    if result:
+                        selected_dir = result[0] if isinstance(result, (list, tuple)) else result
+                        print(f"[Backend] pywebview 폴더 선택 성공: {selected_dir}")
+                        return selected_dir
+                except Exception as e:
+                    print(f"[Backend] pywebview 폴더 다이얼로그 실패: {e}")
         else:
             # Windows/Linux: tkinter
             import tkinter as tk
