@@ -300,6 +300,58 @@ def convert_to_gif(input_path, output_name, start_time, end_time, fps, resolutio
     return {"status": "error", "message": "Async required. Use request_conversion."}
 
 @eel.expose
+def resize_window(delta_w, delta_h):
+    global _webview_window
+    
+    # 1. macOS / pywebview implementation
+    if _webview_window:
+        try:
+            if delta_w > 0:
+                # Expand to the left: Move left AND resize wider
+                _webview_window.move(_webview_window.x - delta_w, _webview_window.y)
+                _webview_window.resize(_webview_window.width + delta_w, _webview_window.height)
+            else:
+                # Shrink from the left: Resize narrower AND move right
+                _webview_window.resize(_webview_window.width + delta_w, _webview_window.height)
+                _webview_window.move(_webview_window.x - delta_w, _webview_window.y)
+            return True
+        except Exception as e:
+            print(f"[PY] Resize failed (macOS): {e}")
+            return False
+            
+    # 2. Windows implementation (ctypes)
+    if platform.system() == 'Windows':
+        try:
+            import ctypes
+            from ctypes import wintypes
+            
+            user32 = ctypes.windll.user32
+            # Find the window by its title specified in eel.start
+            hwnd = user32.FindWindowW(None, "GIF Converter")
+            if not hwnd:
+                # Try partial match or fallback
+                return False
+                
+            rect = wintypes.RECT()
+            user32.GetWindowRect(hwnd, ctypes.byref(rect))
+            
+            curr_x = rect.left
+            curr_y = rect.top
+            curr_w = rect.right - rect.left
+            curr_h = rect.bottom - rect.top
+            
+            # Move and Resize simultaneously to keep right edge fixed
+            # new_x = current_x - delta_w
+            # new_w = current_w + delta_w
+            user32.MoveWindow(hwnd, curr_x - delta_w, curr_y, curr_w + delta_w, curr_h, True)
+            return True
+        except Exception as e:
+            print(f"[PY] Resize failed (Windows): {e}")
+            return False
+            
+    return False
+
+@eel.expose
 def debug_log(message):
     print(f"[JS-LOG] {message}")
 

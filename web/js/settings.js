@@ -306,7 +306,10 @@ function initCropLogic() {
         resetBtn.addEventListener('click', () => {
             window.cropBoxState = { x: 10, y: 10, w: 80, h: 80 };
             const seg = getActiveSegment(window.selectedFileObj);
-            if (seg) seg.crop = { ...window.cropBoxState };
+            if (seg) {
+                seg.crop = { ...window.cropBoxState };
+                if (typeof updateAutoKeyframe === 'function') updateAutoKeyframe();
+            }
             updateCropUI();
         });
     }
@@ -317,6 +320,7 @@ function initCropLogic() {
         ratioDropdown.addEventListener('change', (e) => {
             window.cropAspectRatio = e.detail.value;
             applyRatioToBox();
+            if (typeof updateAutoKeyframe === 'function') updateAutoKeyframe();
         });
     }
 
@@ -336,7 +340,10 @@ function initCropLogic() {
                 
                 // Update the current segment's state
                 const seg = getActiveSegment(window.selectedFileObj);
-                if (seg) seg.cropAspectRatio = newRatio;
+                if (seg) {
+                    seg.cropAspectRatio = newRatio;
+                    if (typeof updateAutoKeyframe === 'function') updateAutoKeyframe();
+                }
 
                 applyRatioToBox();
                 
@@ -510,7 +517,13 @@ function initCropLogic() {
         
         window.cropBoxState = nextState;
         const seg = getActiveSegment(window.selectedFileObj);
-        if (seg) seg.crop = { ...window.cropBoxState };
+        if (seg) {
+            seg.crop = { ...window.cropBoxState };
+            // Auto-key logic: If already has keyframes, update/add at current time
+            if (typeof updateAutoKeyframe === 'function') {
+                updateAutoKeyframe();
+            }
+        }
         updateCropUI();
     };
 

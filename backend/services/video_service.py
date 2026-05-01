@@ -84,7 +84,11 @@ def generate_proxy_worker(path, file_id, proxy_path, total_duration, ffmpeg_exe,
         cmd = [
             ffmpeg_exe, "-i", path,
             "-vf", "scale='min(1280,iw)':-2",
-            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "32",
+            "-c:v", "libx264", 
+            "-preset", "ultrafast", 
+            "-tune", "zerolatency",  # 디코딩 지연 최소화
+            "-g", "1",               # 모든 프레임을 키프레임(Intra-only)으로 설정하여 무지연/무오차 시킹 보장
+            "-crf", "32", 
             "-c:a", "aac", "-b:a", "128k", "-y", proxy_path
         ]
         

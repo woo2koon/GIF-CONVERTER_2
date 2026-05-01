@@ -153,6 +153,19 @@ function initTimelineEvents() {
         zoomSlider.addEventListener('change', (e) => {
             e.target.blur();
         });
+
+        // Alt + Scroll Wheel 확대/축소
+        scrollContainer.addEventListener('wheel', (e) => {
+            if (e.altKey) {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? -0.2 : 0.2;
+                // 현재 줌 배율에 비례하여 변화량 조절 (고배율에서 더 자연스럽게)
+                const scaleFactor = window.timelineZoom > 10 ? (window.timelineZoom / 10) : 1;
+                let newZoom = window.timelineZoom + (delta * scaleFactor);
+                newZoom = Math.max(1, Math.min(100, newZoom));
+                updateTimelineZoom(newZoom);
+            }
+        }, { passive: false });
     }
 
     let isScrubbing = false;
@@ -225,7 +238,10 @@ function initTimelineEvents() {
                     window.ytPlayer.seekTo(time, true);
                 } else {
                     if (isScrubbing) mainPlayer.currentTime = time;
-                    else if (isDraggingLeft && window.selectedSegmentObj) mainPlayer.currentTime = window.selectedSegmentObj.start;
+                    else if (isDraggingLeft && window.selectedSegmentObj) {
+                        // 인점 드래그 시 아주 미세하게 앞 지점(-0.02s)으로 이동
+                        mainPlayer.currentTime = Math.max(0, window.selectedSegmentObj.start - 0.02);
+                    }
                     else if (isDraggingRight && window.selectedSegmentObj) mainPlayer.currentTime = window.selectedSegmentObj.end;
                 }
                 scrubAnimationFrame = null;
@@ -363,8 +379,14 @@ window.updateTimelineZoom = function(zoom) {
     if (!timelineTrack || !scrollContainer) return;
     
     window.timelineZoom = zoom;
+    window.zoomLevel = zoom; // 필름스트립 등에서 사용하는 변수와 동기화
     if (zoomSlider) zoomSlider.value = zoom;
     
+    // 줌 배율 변경 시 필름스트립 프레임 밀도 재계산
+    if (window.selectedFileObj && typeof displayFilmstrip === 'function') {
+        displayFilmstrip(window.selectedFileObj);
+    }
+
     // 1배율일 때는 스크롤 원천 차단
     if (zoom === 1) {
         scrollContainer.style.overflowX = 'hidden';

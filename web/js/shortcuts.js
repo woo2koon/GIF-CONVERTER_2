@@ -53,8 +53,11 @@ function initShortcuts() {
                 e.preventDefault();
                 if (window.selectedSegmentObj) {
                     if (isYT) window.ytPlayer.seekTo(window.selectedSegmentObj.start, true);
-                    else mainPlayer.currentTime = window.selectedSegmentObj.start;
-                    updatePlayheadUI();
+                    else {
+                        // 인점보다 아주 미세하게 앞 지점(-0.02s)으로 이동하여 키프레임 탐색 오차 방지
+                        mainPlayer.currentTime = Math.max(0, window.selectedSegmentObj.start - 0.02);
+                    }
+                    updatePlayheadUI(window.selectedSegmentObj.start);
                 }
                 break;
 
@@ -128,7 +131,8 @@ function initShortcuts() {
                 if (altOpt) {
                     e.preventDefault();
                     const currentZoom = window.timelineZoom || 1;
-                    const newZoom = Math.min(10, currentZoom + 1);
+                    const step = currentZoom >= 20 ? 10 : (currentZoom >= 10 ? 5 : 1);
+                    const newZoom = Math.min(100, currentZoom + step);
                     if (typeof window.updateTimelineZoom === 'function') {
                         window.updateTimelineZoom(newZoom);
                     }
@@ -140,7 +144,8 @@ function initShortcuts() {
                 if (altOpt) {
                     e.preventDefault();
                     const currentZoom = window.timelineZoom || 1;
-                    const newZoom = Math.max(1, currentZoom - 1);
+                    const step = currentZoom > 20 ? 10 : (currentZoom > 10 ? 5 : 1);
+                    const newZoom = Math.max(1, currentZoom - step);
                     if (typeof window.updateTimelineZoom === 'function') {
                         window.updateTimelineZoom(newZoom);
                     }

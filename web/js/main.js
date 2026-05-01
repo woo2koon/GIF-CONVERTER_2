@@ -318,37 +318,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // 11. Keyframe Section Toggle
-    const kfToggleHeader = document.getElementById('kf-toggle-header');
-    const kfCollapsibleContent = document.getElementById('kf-collapsible-content');
-    const kfToggleIcon = document.getElementById('kf-toggle-icon');
-    
-    if (kfToggleHeader && kfCollapsibleContent && kfToggleIcon) {
-        let isExpanded = false; // 기본 상태: 닫힘
-        kfToggleHeader.addEventListener('click', (e) => {
-            if (e.target.closest('#add-keyframe-btn')) return;
-
-            isExpanded = !isExpanded;
-            if (isExpanded) {
-                kfCollapsibleContent.style.maxHeight = '500px';
-                kfCollapsibleContent.style.opacity = '1';
-                kfCollapsibleContent.style.marginTop = '12px';
-                kfToggleIcon.style.transform = 'rotate(0deg)';
-            } else {
-                kfCollapsibleContent.style.maxHeight = '0';
-                kfCollapsibleContent.style.opacity = '0';
-                kfCollapsibleContent.style.marginTop = '0';
-                kfToggleIcon.style.transform = 'rotate(-90deg)';
-            }
-        });
-        
-        // 초기 상태 설정: 닫힌 상태
-        kfCollapsibleContent.style.transition = 'all 0.3s ease';
-        kfCollapsibleContent.style.maxHeight = '0';
-        kfCollapsibleContent.style.opacity = '0';
-        kfCollapsibleContent.style.marginTop = '0';
-        kfToggleIcon.style.transform = 'rotate(-90deg)';
-    }
+    // 11. Keyframe Section Initialization (Simplified - Handled in keyframes.js)
+    // Removed collapsible logic as it is now a dedicated panel
 
     // Add filmstrip generation call
     const mainPlayerEl = document.getElementById('main-player');
