@@ -57,4 +57,4 @@
 
 ---
 
-© 2024 GIF Converter Project. Developed with Antigravity.
+© 2026 GIF Converter Project. Developed with Antigravity.
