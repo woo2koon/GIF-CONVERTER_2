@@ -81,14 +81,15 @@ def generate_proxy_worker(path, file_id, proxy_path, total_duration, ffmpeg_exe,
     """백그라운드에서 실제로 FFmpeg를 실행하는 워커입니다."""
     global active_proxy_processes
     try:
+        # 디코딩과 인코딩 모두 하드웨어 가속(videotoolbox) 적용
         cmd = [
-            ffmpeg_exe, "-i", path,
-            "-vf", "scale='min(1280,iw)':-2",
-            "-c:v", "libx264", 
-            "-preset", "ultrafast", 
-            "-tune", "zerolatency",  # 디코딩 지연 최소화
-            "-g", "1",               # 모든 프레임을 키프레임(Intra-only)으로 설정하여 무지연/무오차 시킹 보장
-            "-crf", "32", 
+            ffmpeg_exe, 
+            "-hwaccel", "videotoolbox", # 하드웨어 가속 디코딩 활성화
+            "-i", path,
+            "-vf", "scale='min(1920,iw)':-2,format=nv12", # VT 가속에 최적화된 픽셀 포맷
+            "-c:v", "h264_videotoolbox", 
+            "-b:v", "4M",            # 적절한 화질의 비트레이트
+            "-g", "1",               # 즉각적인 시킹 보장
             "-c:a", "aac", "-b:a", "128k", "-y", proxy_path
         ]
         

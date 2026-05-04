@@ -42,7 +42,7 @@ def generate_dynamic_crop_expression(keyframes, attr, base_val):
     
     return expr
 
-def conversion_worker(file_id, input_path, output_path, start_time, end_time, fps, resolution, num_colors, use_dither, loop_playback, ffmpeg_exe, crop_params, status_callback, complete_callback, sleep_callback, audio_path=None, speed=1.0):
+def conversion_worker(file_id, input_path, output_path, start_time, end_time, fps, resolution, num_colors, use_dither, loop_playback, ffmpeg_exe, crop_params, status_callback, complete_callback, sleep_callback, audio_path=None, speed=1.0, format_type='gif', include_audio=True):
     """실제로 FFmpeg 2-pass 인코딩을 수행하며 진행률을 보고합니다."""
     try:
         temp_dir = tempfile.gettempdir()
@@ -98,35 +98,95 @@ def conversion_worker(file_id, input_path, output_path, start_time, end_time, fp
         base_filters = crop_filter + scale_filter + speed_filter
         dither_method = "sierra2_4a" if use_dither else "none"
         
-        # --- Pass 1: Palette Generation ---
-        status_callback(file_id, "팔레트 생성 중...", 5)
-        sleep_callback(0.01)
-        filters_pass1 = f"[0:v]{base_filters}fps={fps},palettegen=max_colors={num_colors}:stats_mode=diff"
-        
-        cmd1 = [ffmpeg_exe, "-y", "-ss", str(start_time), "-t", str(input_duration), "-i", input_path]
-        cmd1.extend(["-vf", filters_pass1, palette_path])
-        
-        result1 = subprocess.run(cmd1, capture_output=True, text=True, errors='ignore')
-        if result1.returncode != 0:
-            raise Exception(f"팔레트 생성 실패: {result1.stderr}")
-        
-        # --- Pass 2: GIF Encoding ---
-        status_callback(file_id, "인코딩 중...", 15)
-        sleep_callback(0.01)
-        loop_val = "0" if loop_playback else "-1"
-        
-        palette_input_index = 2 if audio_path else 1
-        filters_pass2 = f"[0:v]{base_filters}fps={fps}[x];[x][{palette_input_index}:v]paletteuse=dither={dither_method}"
-        
-        cmd2 = [ffmpeg_exe, "-y", "-ss", str(start_time), "-t", str(input_duration), "-i", input_path]
-        if audio_path:
-            cmd2.extend(["-ss", str(start_time), "-t", str(input_duration), "-i", audio_path])
-        cmd2.extend([
-            "-i", palette_path,
-            "-filter_complex", filters_pass2,
-            "-loop", loop_val, 
-            "-progress", "pipe:1", output_path
-        ])
+        if format_type == 'gif':
+            # --- Pass 1: Palette Generation ---
+            status_callback(file_id, "팔레트 생성 중...", 5)
+            sleep_callback(0.01)
+            filters_pass1 = f"[0:v]{base_filters}fps={fps},palettegen=max_colors={num_colors}:stats_mode=diff"
+            
+            cmd1 = [ffmpeg_exe, "-y", "-ss", str(start_time), "-t", str(input_duration), "-i", input_path]
+            cmd1.extend(["-vf", filters_pass1, palette_path])
+            
+            result1 = subprocess.run(cmd1, capture_output=True, text=True, errors='ignore')
+            if result1.returncode != 0:
+                raise Exception(f"팔레트 생성 실패: {result1.stderr}")
+            
+            # --- Pass 2: GIF Encoding ---
+            status_callback(file_id, "GIF 인코딩 중...", 15)
+            sleep_callback(0.01)
+            loop_val = "0" if loop_playback else "-1"
+            
+            palette_input_index = 2 if audio_path else 1
+            filters_pass2 = f"[0:v]{base_filters}fps={fps}[x];[x][{palette_input_index}:v]paletteuse=dither={dither_method}"
+            
+            cmd2 = [ffmpeg_exe, "-y", "-ss", str(start_time), "-t", str(input_duration), "-i", input_path]
+            if audio_path:
+                cmd2.extend(["-ss", str(start_time), "-t", str(input_duration), "-i", audio_path])
+            cmd2.extend([
+                "-i", palette_path,
+                "-filter_complex", filters_pass2,
+                "-loop", loop_val, 
+                "-progress", "pipe:1", output_path
+            ])
+            
+        elif format_type == 'mp4':
+            status_callback(file_id, "MP4 인코딩 중...", 10)
+            sleep_callback(0.01)
+            
+            # FPS가 0이면 원본 유지
+            if int(fps) > 0:
+                video_filter = f"{base_filters}fps={fps}"
+            else:
+                video_filter = base_filters
+                
+            if video_filter.endswith(","): video_filter = video_filter[:-1]
+                
+            cmd2 = [ffmpeg_exe, "-y", "-ss", str(start_time), "-t", str(input_duration), "-i", input_path]
+            
+            if include_audio and audio_path:
+                cmd2.extend(["-ss", str(start_time), "-t", str(input_duration), "-i", audio_path])
+                cmd2.extend(["-map", "0:v:0", "-map", "1:a:0"])
+            elif include_audio:
+                cmd2.extend(["-map", "0:v:0", "-map", "0:a:0?"])
+            else:
+                cmd2.extend(["-map", "0:v:0"])
+                
+            cmd2.extend([
+                "-vf", video_filter,
+                "-c:v", "libx264",
+                "-preset", "medium",
+                "-crf", "23",
+                "-pix_fmt", "yuv420p"
+            ])
+            
+            if include_audio:
+                cmd2.extend(["-c:a", "aac", "-b:a", "128k"])
+                
+            cmd2.extend(["-progress", "pipe:1", output_path])
+            
+        elif format_type == 'webp':
+            status_callback(file_id, "WebP 인코딩 중...", 10)
+            sleep_callback(0.01)
+            
+            loop_val = "0" if loop_playback else "1"
+            
+            # FPS가 0이면 원본 유지
+            if int(fps) > 0:
+                video_filter = f"{base_filters}fps={fps}"
+            else:
+                video_filter = base_filters
+                
+            if video_filter.endswith(","): video_filter = video_filter[:-1]
+                
+            cmd2 = [ffmpeg_exe, "-y", "-ss", str(start_time), "-t", str(input_duration), "-i", input_path]
+            cmd2.extend([
+                "-vf", video_filter,
+                "-c:v", "libwebp",
+                "-lossless", "0",
+                "-qscale", "80",
+                "-loop", loop_val,
+                "-progress", "pipe:1", output_path
+            ])
         
         process = subprocess.Popen(
             cmd2, 
@@ -171,7 +231,7 @@ def conversion_worker(file_id, input_path, output_path, start_time, end_time, fp
     except Exception as e:
         complete_callback(file_id, {"status": "error", "message": str(e)})
 
-def start_conversion(input_path, file_id, output_name, start_time, end_time, fps, resolution, save_dir, num_colors, use_dither, loop_playback, crop_params, status_callback, complete_callback, sleep_callback, audio_path=None, speed=1.0):
+def start_conversion(input_path, file_id, output_name, start_time, end_time, fps, resolution, save_dir, num_colors, use_dither, loop_playback, crop_params, status_callback, complete_callback, sleep_callback, audio_path=None, speed=1.0, format_type='gif', include_audio=True):
     try:
         if not os.path.exists(save_dir):
             os.makedirs(save_dir, exist_ok=True)
@@ -188,7 +248,7 @@ def start_conversion(input_path, file_id, output_name, start_time, end_time, fps
         
         threading.Thread(
             target=conversion_worker, 
-            args=(file_id, input_path, output_path, start_time, end_time, fps, resolution, num_colors, use_dither, loop_playback, ffmpeg_exe, crop_params, status_callback, complete_callback, sleep_callback, audio_path, speed),
+            args=(file_id, input_path, output_path, start_time, end_time, fps, resolution, num_colors, use_dither, loop_playback, ffmpeg_exe, crop_params, status_callback, complete_callback, sleep_callback, audio_path, speed, format_type, include_audio),
             daemon=True
         ).start()
         

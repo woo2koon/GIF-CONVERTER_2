@@ -229,7 +229,7 @@ function initTimelineEvents() {
         }
         
         if (isDraggingLeft || isDraggingRight) {
-            updateSizeEstimate();
+
         }
 
         if (!scrubAnimationFrame) {
@@ -347,6 +347,8 @@ function addNewSegment() {
         numColors: currentSeg.numColors,
         useDither: currentSeg.useDither,
         loopPlayback: currentSeg.loopPlayback,
+        format: currentSeg.format || 'gif',
+        includeAudio: currentSeg.includeAudio !== undefined ? currentSeg.includeAudio : true,
         aspectRatioLock: currentSeg.aspectRatioLock,
         customWidth: currentSeg.customWidth,
         customHeight: currentSeg.customHeight,

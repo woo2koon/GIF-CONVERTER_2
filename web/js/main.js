@@ -21,6 +21,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initTimelineEvents();
     initVolumeControls();
     initPlayerEvents();
+    initTooltips();
     
     // 3. Initial Configuration Fetch
     const saveDir = await eel.get_save_directory()();
@@ -142,6 +143,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    const audioToggle = document.getElementById('audio-toggle');
+    if (audioToggle) {
+        audioToggle.addEventListener('click', () => {
+            const seg = getActiveSegment(window.selectedFileObj);
+            if (!seg) return;
+            seg.includeAudio = !seg.includeAudio;
+            updateToggleUI(audioToggle, seg.includeAudio);
+            if (window.selectedFileObj.isBatchSync) {
+                window.selectedFileObj.segments.forEach(s => s.includeAudio = seg.includeAudio);
+            }
+            syncUIToFile(window.selectedFileObj);
+        });
+    }
+
     const ditherToggle = document.getElementById('dither-toggle');
     if (ditherToggle) {
         ditherToggle.addEventListener('click', () => {
@@ -157,6 +172,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     // 10. Dropdown Change Events
+    const formatDropdown = document.getElementById('format-dropdown');
+    if (formatDropdown) {
+        formatDropdown.addEventListener('change', (e) => {
+            const seg = getActiveSegment(window.selectedFileObj);
+            if (!seg) return;
+            seg.format = e.detail.value;
+            
+            if (window.selectedFileObj.isBatchSync) {
+                window.selectedFileObj.segments.forEach(s => s.format = seg.format);
+            }
+            syncUIToFile(window.selectedFileObj);
+
+        });
+    }
+
     const resDropdown = document.getElementById('res-dropdown');
     if (resDropdown) {
         resDropdown.addEventListener('change', (e) => {
@@ -190,7 +220,21 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
             
             syncUIToFile(window.selectedFileObj);
-            updateSizeEstimate();
+
+        });
+    }
+
+    const fpsDropdown = document.getElementById('fps-dropdown');
+    if (fpsDropdown) {
+        fpsDropdown.addEventListener('change', (e) => {
+            const seg = getActiveSegment(window.selectedFileObj);
+            if (!seg) return;
+            seg.fps = parseInt(e.detail.value);
+            if (window.selectedFileObj.isBatchSync) {
+                window.selectedFileObj.segments.forEach(s => s.fps = seg.fps);
+            }
+            syncUIToFile(window.selectedFileObj);
+
         });
     }
 
@@ -204,7 +248,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (window.selectedFileObj.isBatchSync) {
                 window.selectedFileObj.segments.forEach(s => s.fps = seg.fps);
             }
-            updateSizeEstimate();
+
         });
     }
 
@@ -288,7 +332,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     s.aspectRatioLock = seg.aspectRatioLock;
                 });
             }
-            updateSizeEstimate();
+
         };
 
         customW.addEventListener('input', () => updateRatio('w'));
@@ -357,7 +401,10 @@ function initSettingsModal() {
 
     const refreshCacheInfo = async () => {
         const info = await eel.get_cache_info()();
-        const formatSize = (bytes) => (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        const formatSize = (bytes) => {
+            if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        };
         
         const totalEl = document.getElementById('total-cache-size');
         const proxyEl = document.getElementById('proxy-cache-size');

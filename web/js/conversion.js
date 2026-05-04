@@ -45,6 +45,10 @@ function update_proxy_progress(file_id, progress) {
 
 eel.expose(update_conversion_status);
 function update_conversion_status(task_id, status, progress) {
+    if (!task_id || typeof task_id !== 'string') {
+        console.warn("[Conversion] Invalid task_id received:", task_id);
+        return;
+    }
     const [file_id, seg_id] = task_id.includes('@@') ? task_id.split('@@') : [task_id, null];
     
     const fileObj = window.uploadedFiles.find(f => f.id === file_id);
@@ -99,7 +103,14 @@ function update_conversion_status(task_id, status, progress) {
     
     const overallGlobalProgress = Math.min(100, Math.round((window.completedBatchCount * 100 + activeTasksProgress) / window.totalBatchCount));
     const currentNum = Math.min(window.totalBatchCount, window.completedBatchCount + 1);
-    updateStatus(`(${currentNum}/${window.totalBatchCount}) GIF 변환 중... (${overallGlobalProgress}%)`);
+    
+    // 현재 세그먼트의 포맷에 따라 문구 변경
+    let formatLabel = "GIF";
+    if (seg && seg.format) {
+        formatLabel = seg.format.toUpperCase();
+    }
+    
+    updateStatus(`(${currentNum}/${window.totalBatchCount}) ${formatLabel} 변환 중... (${overallGlobalProgress}%)`);
 }
 
 eel.expose(proxy_completed);
@@ -180,7 +191,7 @@ function conversion_completed(task_id, result) {
     }
 
     if (window.completedBatchCount >= window.totalBatchCount) {
-        updateStatus(`(${window.totalBatchCount}/${window.totalBatchCount}) GIF 변환 완료 (100%)`);
+        updateStatus(`(${window.totalBatchCount}/${window.totalBatchCount}) 모든 변환 완료 (100%)`);
         eel.open_downloads_folder();
         setTimeout(() => updateStatus(""), 3000);
     }
@@ -328,19 +339,21 @@ async function processConversionQueue() {
 
         // Prepare parameters
         const inputPath = file.path;
-        
+        const format = seg.format || 'gif';
+        const includeAudio = seg.includeAudio !== undefined ? seg.includeAudio : true;
+
         // Use only the original filename. Duplicates are handled by the backend (e.g., adding (1), (2)).
         // Use original filename with time tags for segments to prevent overwriting and provide context
         const lastDotIndex = file.name.lastIndexOf('.');
         let baseName = lastDotIndex !== -1 ? file.name.substring(0, lastDotIndex) : file.name;
         baseName = sanitizeFilename(baseName);
-        let outputName = `${baseName}.gif`;
+        let outputName = `${baseName}.${format}`;
         
         // If there are segments, add time tags to distinguish them
         if (file.segments.length > 0) {
             const startTag = formatTimeForFilename(seg.start);
             const endTag = formatTimeForFilename(seg.end);
-            outputName = `${baseName}_${startTag}_${endTag}.gif`;
+            outputName = `${baseName}_${startTag}_${endTag}.${format}`;
         }
         const startTime = seg.start;
         const endTime = seg.end;
@@ -381,7 +394,9 @@ async function processConversionQueue() {
             loopPlayback, 
             cropParams,
             file.audioUrl,
-            speed
+            speed,
+            format,
+            includeAudio
         );
 
         // Handle completion

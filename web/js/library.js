@@ -1,6 +1,15 @@
+eel.expose(handle_dropped_files_from_python);
+function handle_dropped_files_from_python(paths) {
+    if (paths && paths.length > 0) {
+        processFilePaths(paths);
+    }
+}
+
 function addLibraryItem(fileObj) {
     const libraryList = document.getElementById('library-list');
-    const sizeMb = (fileObj.size / (1024 * 1024)).toFixed(1);
+    const displaySize = fileObj.size >= 1024 * 1024 * 1024 
+        ? (fileObj.size / (1024 * 1024 * 1024)).toFixed(1) + ' GB'
+        : (fileObj.size / (1024 * 1024)).toFixed(1) + ' MB';
     const format = fileObj.name.split('.').pop().toUpperCase();
     const itemDiv = document.createElement('div');
     itemDiv.className = "library-item bg-white text-indigo-600 shadow-sm rounded-lg p-3 cursor-pointer group transition-all duration-200 ease-in-out border border-indigo-200 hover:border-indigo-400 select-none";
@@ -31,7 +40,7 @@ function addLibraryItem(fileObj) {
                     </div>
                     <div class="flex items-center gap-2 mt-0.5 min-h-[20px]">
                         <div class="file-metadata flex items-center gap-1 overflow-hidden">
-                            <span class="text-xs text-slate-500 font-medium truncate max-w-[100px]">${fileObj.isYoutube || fileObj.isDownloadedYoutube ? (fileObj.author || 'YouTube') : sizeMb + ' MB'}</span>
+                            <span class="text-xs text-slate-500 font-medium truncate max-w-[100px]">${fileObj.isYoutube || fileObj.isDownloadedYoutube ? (fileObj.author || 'YouTube') : displaySize}</span>
                             <div class="flex items-center gap-1.5 flex-shrink-0">
                                 ${(fileObj.isYoutube || fileObj.isDownloadedYoutube) ? `
                                 <span class="flex items-center" style="line-height:0;margin-top:-2px" title="YouTube">
@@ -289,6 +298,8 @@ async function processFilePaths(paths) {
                     numColors: 256,
                     useDither: false,
                     loopPlayback: true,
+                    format: 'gif',
+                    includeAudio: true,
                     status: 'idle',
                     progress: 0
                 },

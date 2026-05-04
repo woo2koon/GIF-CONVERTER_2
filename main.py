@@ -34,6 +34,18 @@ for d in [PROXY_DIR, YT_DL_DIR]:
 # Initialize Eel
 eel.init('web')
 
+# Monkey-patch Eel to prevent KeyError: 'value' when JS returns an error
+# This occurs because if 'return' is in message but status is not 'ok', 
+# Eel's internal code still tries to access message['value'] in the 'else' block.
+_original_process_message = eel._process_message
+def _patched_process_message(message, ws):
+    if 'return' in message:
+        # call_id = message.get('return')
+        if 'value' not in message:
+            message['value'] = None
+    return _original_process_message(message, ws)
+eel._process_message = _patched_process_message
+
 @eel.expose
 def get_os_info():
     return fetch_os_info()
@@ -287,12 +299,12 @@ def clear_youtube_cache():
         return {"status": "error", "message": str(e)}
 
 @eel.expose
-def request_conversion(input_path, file_id, output_name, start_time, end_time, fps, resolution, num_colors=256, use_dither=False, loop_playback=True, crop_params=None, audio_path=None, speed=1.0):
+def request_conversion(input_path, file_id, output_name, start_time, end_time, fps, resolution, num_colors=256, use_dither=False, loop_playback=True, crop_params=None, audio_path=None, speed=1.0, format_type='gif', include_audio=True):
     save_dir = app_config.get("save_dir", DEFAULT_SAVE_DIR)
     return start_conversion(
         input_path, file_id, output_name, start_time, end_time, fps, resolution, 
         save_dir, num_colors, use_dither, loop_playback, crop_params,
-        eel.update_conversion_status, eel.conversion_completed, eel.sleep, audio_path, speed
+        eel.update_conversion_status, eel.conversion_completed, eel.sleep, audio_path, speed, format_type, include_audio
     )
 
 @eel.expose

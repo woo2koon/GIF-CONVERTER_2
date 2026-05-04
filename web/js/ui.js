@@ -82,3 +82,52 @@ function updateBatchButtonState() {
         bulkDeleteBar.classList.remove('translate-y-0');
     }
 }
+function initTooltips() {
+    const tooltip = document.getElementById('custom-tooltip');
+    if (!tooltip) return;
+
+    document.addEventListener('mouseover', (e) => {
+        const target = e.target.closest('[title], [data-tooltip]');
+        if (target) {
+            const content = target.getAttribute('title') || target.getAttribute('data-tooltip');
+            if (!content) return;
+
+            // 브라우저 기본 툴팁 방지
+            if (target.hasAttribute('title')) {
+                target.setAttribute('data-tooltip', content);
+                target.removeAttribute('title');
+            }
+
+            tooltip.textContent = content;
+            tooltip.classList.add('show');
+
+            const rect = target.getBoundingClientRect();
+            const tooltipRect = tooltip.getBoundingClientRect();
+            
+            let top = rect.top - tooltipRect.height - 8;
+            let left = rect.left + (rect.width / 2) - (tooltipRect.width / 2);
+
+            // 화면 밖으로 나가는 것 방지
+            if (top < 8) top = rect.bottom + 8;
+            if (left < 8) left = 8;
+            if (left + tooltipRect.width > window.innerWidth - 8) {
+                left = window.innerWidth - tooltipRect.width - 8;
+            }
+
+            tooltip.style.top = `${top}px`;
+            tooltip.style.left = `${left}px`;
+        }
+    });
+
+    document.addEventListener('mouseout', (e) => {
+        const target = e.target.closest('[data-tooltip]');
+        if (target) {
+            tooltip.classList.remove('show');
+        }
+    });
+
+    // 클릭 시에도 닫기
+    document.addEventListener('mousedown', () => {
+        tooltip.classList.remove('show');
+    });
+}

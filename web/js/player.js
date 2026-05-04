@@ -186,33 +186,6 @@ function initPlayerEvents() {
     
     if (!mainPlayer || !playIcon) return;
     
-    // [고도화] 정밀 재생 제어 함수: 시킹 -> 렌더링 확인(rVFC) -> 디코더 안정화 대기 -> 재생
-    async function seekAndPlayPrecise(targetTime, inPoint) {
-        return new Promise((resolve) => {
-            isSeekingNow = true;
-            mainPlayer.pause();
-            
-            const onSeeked = async () => {
-                // 1. rVFC로 첫 프레임이 화면에 완전히 그려졌는지 확인
-                if (mainPlayer.requestVideoFrameCallback) {
-                    await new Promise(r => mainPlayer.requestVideoFrameCallback(r));
-                    await new Promise(r => mainPlayer.requestVideoFrameCallback(r));
-                }
-                // 2. [핵심] 브라우저 디코더가 숨을 고를 수 있도록 물리적 시간 부여 (100ms)
-                await new Promise(r => setTimeout(r, 100));
-                
-                const msg = `[Precise Start] TargetIn: ${inPoint.toFixed(4)}, Initial: ${mainPlayer.currentTime.toFixed(4)}`;
-                if (typeof eel !== 'undefined') eel.debug_log(msg);
-                
-                isSeekingNow = false;
-                updatePlayheadUI();
-                mainPlayer.play().then(resolve).catch(resolve);
-            };
-            mainPlayer.addEventListener('seeked', onSeeked, { once: true });
-            mainPlayer.currentTime = targetTime;
-        });
-    }
-
     // rVFC 지원 여부 확인 로그 (터미널 및 콘솔)
     const rvfcSupported = !!mainPlayer.requestVideoFrameCallback;
     console.log(`rvfc 지원 여부: ${rvfcSupported}`);
@@ -221,7 +194,6 @@ function initPlayerEvents() {
     }
 
     let syncAnimationFrame = null;
-    let isSeekingNow = false; // 탐색 중임을 나타내는 플래그
 
     function updateSync() {
         if (!window.selectedFileObj) return;
@@ -236,24 +208,24 @@ function initPlayerEvents() {
         }
 
         if (!isPaused) {
-            if (window.selectedSegmentObj && !isSeekingNow) {
+            if (window.selectedSegmentObj) {
                 const inPoint = window.selectedSegmentObj.start;
                 const outPoint = window.selectedSegmentObj.end;
                 
-                if (currentTime < inPoint - 0.1 || currentTime >= outPoint) {
+                // 루프 설정이 켜져 있을 때만 반복 (기본값 true)
+                const shouldLoop = window.selectedSegmentObj.loopPlayback !== false;
+                
+                if (shouldLoop && (currentTime < inPoint - 0.1 || currentTime >= outPoint - 0.05)) {
                     if (window.selectedFileObj.isYoutube) {
                         window.ytPlayer.seekTo(inPoint, true);
                     } else {
-                        const targetTime = Math.max(0, inPoint - 0.1);
-                        seekAndPlayPrecise(targetTime, inPoint);
+                        mainPlayer.currentTime = inPoint;
+                        mainPlayer.play().catch(() => {});
                     }
                 }
             }
             
-            // 탐색 중이 아닐 때만 실제 시간으로 UI 갱신
-            if (!isSeekingNow) {
-                updatePlayheadUI();
-            }
+            updatePlayheadUI();
             
             syncAnimationFrame = requestAnimationFrame(updateSync);
         }
@@ -261,25 +233,7 @@ function initPlayerEvents() {
 
     // 탐색 완료 이벤트 리스너
     mainPlayer.addEventListener('seeked', () => {
-        // [고도화] rVFC를 3번 대기 (약 3프레임) 하여 데코더 파이프라인을 완전히 안정화
-        if (mainPlayer.requestVideoFrameCallback) {
-            mainPlayer.requestVideoFrameCallback(() => {
-                mainPlayer.requestVideoFrameCallback(() => {
-                    mainPlayer.requestVideoFrameCallback(() => {
-                        isSeekingNow = false;
-                        updatePlayheadUI();
-                    });
-                });
-            });
-        } else {
-            // 폴백: rVFC 미지원 브라우저
-            requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                    isSeekingNow = false;
-                    updatePlayheadUI();
-                });
-            });
-        }
+        requestAnimationFrame(() => updatePlayheadUI());
     });
 
     mainPlayer.addEventListener('waiting', () => {
@@ -298,7 +252,7 @@ function initPlayerEvents() {
                     if (count < 10 && !mainPlayer.paused) {
                         const msg = `[RVFC Sync] Frame: ${metadata.presentedFrames}, MediaTime: ${metadata.mediaTime.toFixed(4)}`;
                         console.log(msg);
-                        if (typeof eel !== 'undefined' && eel.debug_log) eel.debug_log(msg);
+                        // console.log(msg);
                         
                         count++;
                         mainPlayer.requestVideoFrameCallback(logFrames);
@@ -317,6 +271,17 @@ function initPlayerEvents() {
                 syncAnimationFrame = null;
             }
             updatePlayheadUI();
+        }
+    });
+
+    // 영상 종료 시 루프 처리
+    mainPlayer.addEventListener('ended', () => {
+        if (window.selectedFileObj && !window.selectedFileObj.isYoutube && window.selectedSegmentObj) {
+            const shouldLoop = window.selectedSegmentObj.loopPlayback !== false;
+            if (shouldLoop) {
+                mainPlayer.currentTime = window.selectedSegmentObj.start;
+                mainPlayer.play().catch(() => {});
+            }
         }
     });
 
@@ -411,16 +376,22 @@ function togglePlayPause() {
                 const inPoint = window.selectedSegmentObj.start;
                 const outPoint = window.selectedSegmentObj.end;
                 
-                // 현재 위치가 인 지점보다 이전(-0.1s)이거나 완전히 벗어나 있으면 정밀 재생 실행
-                if (mainPlayer.currentTime < inPoint - 0.1 || mainPlayer.currentTime >= outPoint) {
-                    const targetTime = Math.max(0, inPoint - 0.1);
-                    seekAndPlayPrecise(targetTime, inPoint);
+                // 현재 위치가 인 지점보다 이전이거나 완전히 벗어나 있으면 정밀 재생 실행 (프레임 스냅 오차 0.05초 허용)
+                if (mainPlayer.currentTime < inPoint - 0.1 || mainPlayer.currentTime >= outPoint - 0.05) {
+                    mainPlayer.currentTime = inPoint;
+                    mainPlayer.play().catch(err => {
+                        console.error("Play error after jump:", err);
+                        document.getElementById('play-icon').textContent = 'play_arrow';
+                    });
                     return;
                 }
             }
             
             // 이미 올바른 위치라면 즉시 재생
-            mainPlayer.play().catch(err => console.error("Play error:", err));
+            mainPlayer.play().catch(err => {
+                console.error("Play error:", err);
+                document.getElementById('play-icon').textContent = 'play_arrow';
+            });
         } else {
             mainPlayer.pause();
         }
@@ -659,7 +630,14 @@ function onPlayerStateChange(event) {
     if (event.data == YT.PlayerState.PLAYING) {
         playIcon.textContent = 'pause';
         requestAnimationFrame(updateSyncProxy);
-    } else if (event.data == YT.PlayerState.PAUSED || event.data == YT.PlayerState.ENDED) {
+    } else if (event.data == YT.PlayerState.PAUSED) {
         playIcon.textContent = 'play_arrow';
+    } else if (event.data == YT.PlayerState.ENDED) {
+        playIcon.textContent = 'play_arrow';
+        // 유튜브 루프 처리
+        if (window.selectedSegmentObj && (window.selectedSegmentObj.loopPlayback !== false)) {
+            window.ytPlayer.seekTo(window.selectedSegmentObj.start, true);
+            window.ytPlayer.playVideo();
+        }
     }
 }

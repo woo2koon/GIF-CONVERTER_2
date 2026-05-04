@@ -332,6 +332,30 @@
             background: #e11d48;
             box-shadow: 0 0 10px rgba(225, 29, 72, 0.8);
         }
+
+        /* Custom Fast Tooltip */
+        #custom-tooltip {
+            position: fixed;
+            z-index: 9999;
+            background: rgba(15, 23, 42, 0.9);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-size: 11px;
+            font-weight: 600;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.1s ease, transform 0.1s ease;
+            transform: translateY(5px);
+            white-space: nowrap;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(4px);
+        }
+        #custom-tooltip.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
     </style>
 </head>
 
@@ -636,7 +660,7 @@
             <div class="p-6 bg-white/50 border-t border-slate-100">
                 <button id="panel-add-kf-btn" class="w-full py-4 bg-rose-500 hover:bg-rose-600 text-white font-bold rounded-2xl shadow-lg shadow-rose-100 transition-all active:scale-95 flex items-center justify-center gap-2">
                     <span class="material-symbols-outlined">add_circle</span>
-                    현재 시점에 추가
+                    키프레임 추가
                 </button>
             </div>
         </aside>
@@ -647,6 +671,22 @@
             <!-- Scrollable Settings Area -->
             <div class="flex-1 overflow-y-auto p-6 flex flex-col gap-4 no-scrollbar">
                 <h2 class="font-sans text-lg font-bold text-on-surface mb-2">출력 설정</h2>
+                
+                <!-- [신규] Export Format -->
+                <div class="space-y-2 mb-2">
+                    <label class="block text-xs font-bold text-on-surface-variant uppercase tracking-widest font-sans">추출 포맷</label>
+                    <div class="relative custom-dropdown" id="format-dropdown">
+                        <button class="dropdown-trigger w-full bg-surface-container-lowest border border-slate-200 rounded-xl py-3 px-4 text-base font-bold text-primary flex items-center justify-between shadow-sm hover:bg-slate-50 transition-colors">
+                            <span id="format-selected">GIF</span>
+                            <span class="material-symbols-outlined text-primary">expand_more</span>
+                        </button>
+                        <ul class="dropdown-menu absolute z-50 w-full mt-1 bg-white rounded-xl shadow-2xl border border-slate-100 overflow-hidden">
+                            <li class="dropdown-item px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors active font-bold" data-value="gif">GIF</li>
+                            <li class="dropdown-item px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors font-bold" data-value="mp4">MP4</li>
+                            <li class="dropdown-item px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors font-bold" data-value="webp">WebP</li>
+                        </ul>
+                    </div>
+                </div>
 
                 <!-- Batch Sync Toggle -->
                 <!-- Batch Sync Toggle -->
@@ -769,19 +809,19 @@
                 </div>
 
 
-                <!-- Color Depth -->
-                <div class="space-y-2">
+                <!-- Color Depth (GIF Only) -->
+                <div id="format-group-gif" class="space-y-2 format-dependent">
                     <label class="block text-xs font-bold text-on-surface-variant uppercase tracking-widest font-sans">색상 수</label>
                     <div class="relative custom-dropdown" id="colors-dropdown">
                         <button class="dropdown-trigger w-full bg-surface-container-lowest border-none rounded-xl py-3 px-4 text-base font-medium flex items-center justify-between shadow-sm hover:bg-slate-50 transition-colors">
-                            <span id="colors-selected">256색 (고화질)</span>
+                            <span id="colors-selected">256색</span>
                             <span class="material-symbols-outlined text-slate-400">palette</span>
                         </button>
                         <ul class="dropdown-menu absolute z-50 w-full mt-1 bg-white rounded-xl shadow-2xl border border-slate-100 overflow-hidden">
-                            <li class="dropdown-item px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors active" data-value="256">256색 (고화질)</li>
-                            <li class="dropdown-item px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors" data-value="128">128색 (일반)</li>
-                            <li class="dropdown-item px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors" data-value="64">64색 (저용량)</li>
-                            <li class="dropdown-item px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors" data-value="32">32색 (초저용량)</li>
+                            <li class="dropdown-item px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors active" data-value="256">256색</li>
+                            <li class="dropdown-item px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors" data-value="128">128색</li>
+                            <li class="dropdown-item px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors" data-value="64">64색</li>
+                            <li class="dropdown-item px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors" data-value="32">32색</li>
                         </ul>
                     </div>
                 </div>
@@ -792,7 +832,8 @@
                         <label class="text-xs font-bold text-on-surface-variant uppercase tracking-widest font-sans">프레임 레이트</label>
                         <span id="fps-display" class="text-sm font-bold text-primary font-sans">24 FPS</span>
                     </div>
-                    <div class="flex flex-col">
+                    <!-- GIF용 슬라이더 -->
+                    <div id="fps-slider-container" class="flex flex-col">
                         <input id="fps-slider"
                             class="w-full h-2 bg-surface-container-highest rounded-full appearance-none cursor-pointer accent-primary"
                             max="30" min="5" type="range" value="24" />
@@ -803,6 +844,21 @@
                             <span class="absolute left-[60%] -translate-x-1/2">20</span>
                             <span class="absolute left-[80%] -translate-x-1/2">25</span>
                             <span class="absolute left-full -translate-x-1/2">30</span>
+                        </div>
+                    </div>
+                    <!-- MP4/WebP용 드롭다운 -->
+                    <div id="fps-dropdown-container" class="hidden">
+                        <div class="relative custom-dropdown" id="fps-dropdown">
+                            <button class="dropdown-trigger w-full bg-surface-container-lowest border border-slate-200 rounded-xl py-2.5 px-4 text-sm font-bold text-primary flex items-center justify-between shadow-sm hover:bg-slate-50 transition-colors">
+                                <span id="fps-selected">30 FPS</span>
+                                <span class="material-symbols-outlined text-primary">expand_more</span>
+                            </button>
+                            <ul class="dropdown-menu absolute z-50 w-full mt-1 bg-white rounded-xl shadow-2xl border border-slate-100 overflow-hidden">
+                                <li class="dropdown-item px-4 py-2.5 hover:bg-slate-50 cursor-pointer transition-colors" data-value="0">원본 FPS 유지</li>
+                                <li class="dropdown-item px-4 py-2.5 hover:bg-slate-50 cursor-pointer transition-colors" data-value="60">60 FPS</li>
+                                <li class="dropdown-item px-4 py-2.5 hover:bg-slate-50 cursor-pointer transition-colors active font-bold" data-value="30">30 FPS</li>
+                                <li class="dropdown-item px-4 py-2.5 hover:bg-slate-50 cursor-pointer transition-colors" data-value="24">24 FPS</li>
+                            </ul>
                         </div>
                     </div>
                 </div>
@@ -829,8 +885,19 @@
                 </div>
 
                 <!-- Optimization Toggles -->
-                <div class="bg-surface-container-lowest p-3 rounded-xl space-y-3 shadow-sm border border-slate-100">
-                    <div class="flex items-center justify-between">
+                <div class="bg-surface-container-lowest p-4 rounded-2xl flex flex-col gap-4 shadow-sm border border-slate-100/50">
+                    <div id="audio-toggle-container" class="hidden format-dependent items-center justify-between">
+                        <div class="flex flex-col">
+                            <span class="text-sm font-bold text-on-surface">소리 포함</span>
+                            <span class="text-[10px] text-on-surface-variant">오디오 트랙 유지</span>
+                        </div>
+                        <div id="audio-toggle" data-active="true"
+                            class="w-10 h-5 bg-primary rounded-full relative p-0.5 cursor-pointer transition-colors">
+                            <div class="w-4 h-4 bg-white rounded-full transition-transform pointer-events-none translate-x-5 shadow-sm"></div>
+                        </div>
+                    </div>
+                    
+                    <div id="loop-toggle-container" class="flex format-dependent items-center justify-between">
                         <div class="flex flex-col">
                             <span class="text-sm font-bold text-on-surface">반복 재생</span>
                             <span class="text-[10px] text-on-surface-variant">애니메이션 연속 재생</span>
@@ -840,7 +907,8 @@
                             <div class="w-4 h-4 bg-white rounded-full transition-transform pointer-events-none translate-x-5 shadow-sm"></div>
                         </div>
                     </div>
-                    <div class="flex items-center justify-between">
+                    
+                    <div id="dither-toggle-container" class="flex format-dependent items-center justify-between">
                         <div class="flex flex-col">
                             <span class="text-sm font-bold text-on-surface">디더링</span>
                             <span class="text-[10px] text-on-surface-variant">부드러운 그라데이션</span>
@@ -853,17 +921,7 @@
                 </div>
             </div>
 
-            <!-- Size Estimation Display -->
-            <div id="size-estimate-container" class="mx-6 mb-3 px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between transition-all opacity-0">
-                <div class="flex items-center gap-2">
-                    <span class="material-symbols-outlined text-slate-400 text-[18px]">analytics</span>
-                    <span class="text-xs font-bold text-slate-500 uppercase tracking-tight">예상 용량</span>
-                </div>
-                <div class="flex items-baseline gap-1">
-                    <span id="size-estimate-value" class="text-lg font-black text-primary font-mono leading-none">0.0</span>
-                    <span class="text-[10px] font-bold text-slate-400 uppercase">MB</span>
-                </div>
-            </div>
+
 
             <!-- Seamless Morphing Conversion Button Area -->
             <div id="convert-container" class="mx-6 mb-6 bg-gradient-to-r from-primary to-primary-container rounded-xl shadow-lg shadow-primary/30 flex items-stretch transition-all relative">
@@ -872,6 +930,7 @@
                     <!-- User Custom SVG Graphics -->
                     <svg id="convert-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 285.62 76.61" class="h-6 w-auto drop-shadow-[0_2px_2px_rgba(0,0,0,0.2)]">
                         <g fill="currentColor">
+                            <!-- Default GIF logo -->
                             <path d="M0,39.78C0,19.22,13.4,7.16,29.92,7.16c9.02,0,15.26,3.88,19.3,8.01l-6.66,7.92c-3.03-2.95-6.49-5.23-12.22-5.23-10.37,0-17.62,8.09-17.62,21.49s6.24,21.75,18.46,21.75c3.03,0,6.07-.76,7.84-2.36v-12.31h-11.04v-10.2h22.17v28.15c-4.3,4.13-11.46,7.5-20.23,7.5C12.81,71.89,0,60.6,0,39.78Z"/>
                             <path d="M72.23,70.71h-12.47V8.34h12.47v62.37Z"/>
                             <path d="M122.2,18.71h-25.96v16.27h22.17v10.45h-22.17v25.28h-12.47V8.34h38.43v10.37Z"/>
@@ -1116,6 +1175,7 @@
         </div>
         <p class="text-white/40 text-xs">최고 화질을 위해 비디오와 오디오를 병합하고 있습니다.</p>
     </div>
+    <div id="custom-tooltip">툴팁 내용</div>
 </body>
 
 </html>
