@@ -1,6 +1,6 @@
-# 🎬 GIF Converter v1.7
+# 🎬 GIF Converter v1.7 (Cross-Platform)
 
-고화질 영상과 유튜브 영상을 손쉽게 고품질 GIF 및 WebP로 변환해주는 전문가급 움짤 제작 도구입니다. Mac 하드웨어 가속을 활용한 쾌적한 편집 환경과 정밀한 키프레임 크롭 기능을 제공합니다.
+Windows와 macOS 모두를 지원하며, 고화질 영상과 유튜브 영상을 손쉽게 고품질 GIF, WebP, MP4로 변환해주는 전문가급 움짤 제작 도구입니다. 각 OS별 하드웨어 가속을 활용한 쾌적한 편집 환경을 제공합니다.
 
 ---
 
@@ -11,8 +11,8 @@
 *   **유튜브 통합**: 유튜브 URL만으로 영상을 즉시 불러와 편집 및 변환 가능.
 *   **라이브러리 관리**: 파일별 용량(MB/GB), 포맷, 프록시 상태를 한눈에 확인.
 
-### 2. 고성능 편집 워크플로우 (Proxy)
-*   **하드웨어 가속 프록시**: 4K 등 고해상도 영상을 편집할 때, Mac의 `videotoolbox`를 사용하여 1080p 편집용 저용량 파일을 순식간에 생성합니다.
+### 2. 고성능 크로스 플랫폼 워크플로우 (Proxy)
+*   **OS별 하드웨어 가속**: macOS(`videotoolbox`)와 Windows(`NVENC`, `D3D11VA`)의 하드웨어 가속을 모두 지원하여, 고해상도 영상을 편집용 저용량 파일로 순식간에 생성합니다.
 *   **무손실 프리뷰**: 원본의 손상 없이 쾌적하게 구간을 잡고 효과를 확인하세요.
 
 ### 3. 정밀한 구간 편집 및 타임라인
@@ -38,7 +38,7 @@
 ## 🛠 기술 스택
 *   **Frontend**: HTML5, CSS3 (Vanilla), JavaScript (ES6+), TailwindCSS
 *   **Backend**: Python, Eel (Electron-like GUI)
-*   **Engine**: FFmpeg (Mac 하드웨어 가속 활용)
+*   **Engine**: FFmpeg (macOS 및 Windows 하드웨어 가속 활용)
 
 ---
 

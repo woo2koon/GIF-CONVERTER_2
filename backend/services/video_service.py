@@ -81,15 +81,27 @@ def generate_proxy_worker(path, file_id, proxy_path, total_duration, ffmpeg_exe,
     """백그라운드에서 실제로 FFmpeg를 실행하는 워커입니다."""
     global active_proxy_processes
     try:
-        # 디코딩과 인코딩 모두 하드웨어 가속(videotoolbox) 적용
+        import platform
+        system = platform.system()
+        hwaccel = "auto"
+        vcodec = "libx264"
+        
+        if system == "Darwin":
+            hwaccel = "videotoolbox"
+            vcodec = "h264_videotoolbox"
+        elif system == "Windows":
+            # Windows에서는 하드웨어 가속 시도 (DXVA2/D3D11VA)
+            hwaccel = "d3d11va"
+            vcodec = "h264_nvenc" # NVIDIA 우선 시도 (실패 시 libx264 fallback은 추후 고도화)
+        
         cmd = [
             ffmpeg_exe, 
-            "-hwaccel", "videotoolbox", # 하드웨어 가속 디코딩 활성화
+            "-hwaccel", hwaccel,
             "-i", path,
-            "-vf", "scale='min(1920,iw)':-2,format=nv12", # VT 가속에 최적화된 픽셀 포맷
-            "-c:v", "h264_videotoolbox", 
-            "-b:v", "4M",            # 적절한 화질의 비트레이트
-            "-g", "1",               # 즉각적인 시킹 보장
+            "-vf", "scale='min(1920,iw)':-2,format=nv12" if system == "Darwin" else "scale='min(1920,iw)':-2",
+            "-c:v", vcodec, 
+            "-b:v", "4M",
+            "-g", "1",
             "-c:a", "aac", "-b:a", "128k", "-y", proxy_path
         ]
         
