@@ -78,24 +78,39 @@ def pick_videos(webview_window=None):
             print(f"[Backend] AppleScript 실패: {e}")
         return []
     else:
-        # Windows/Linux: tkinter
+        # Windows/Linux: tkinter (스레드 세이프 호출 보강)
         print("[Backend] Tkinter 호출 시도...")
-        import tkinter as tk
-        from tkinter import filedialog
-        try:
-            root = tk.Tk()
-            root.withdraw()
-            root.attributes("-topmost", True)
-            files = filedialog.askopenfilenames(
-                title="비디오 파일 선택",
-                filetypes=[("Video files", "*.mp4 *.mov *.avi *.mkv *.wmv *.webm")]
-            )
-            root.destroy()
-            print(f"[Backend] 파일 선택 성공: {len(files)}개")
-            return list(files)
-        except Exception as e:
-            print(f"[Backend] Tkinter 예외 발생: {str(e)}")
+        import queue
+        import threading
+        
+        res_queue = queue.Queue()
+        
+        def ask_files():
+            try:
+                import tkinter as tk
+                from tkinter import filedialog
+                root = tk.Tk()
+                root.withdraw()
+                root.attributes("-topmost", True)
+                files = filedialog.askopenfilenames(
+                    title="비디오 파일 선택",
+                    filetypes=[("Video files", "*.mp4 *.mov *.avi *.mkv *.wmv *.webm")]
+                )
+                root.destroy()
+                res_queue.put(list(files))
+            except Exception as e:
+                res_queue.put(e)
+                
+        t = threading.Thread(target=ask_files)
+        t.start()
+        t.join()
+        
+        res = res_queue.get()
+        if isinstance(res, Exception):
+            print(f"[Backend] Tkinter 스레드 에러: {res}")
             return []
+        print(f"[Backend] 파일 선택 성공: {len(res)}개")
+        return res
 
 def select_save_directory(webview_window=None):
     """지정한 저장 폴더를 선택하는 다이얼로그를 띄웁니다."""
@@ -136,14 +151,33 @@ def select_save_directory(webview_window=None):
                 except Exception as e:
                     print(f"[Backend] pywebview 폴더 다이얼로그 실패: {e}")
         else:
-            # Windows/Linux: tkinter
-            import tkinter as tk
-            from tkinter import filedialog
-            root = tk.Tk()
-            root.withdraw()
-            root.attributes("-topmost", True)
-            selected_dir = filedialog.askdirectory(title="저장 폴더를 선택하세요")
-            root.destroy()
+            # Windows/Linux: tkinter (스레드 세이프 호출 보강)
+            import queue
+            import threading
+            
+            res_queue = queue.Queue()
+            
+            def ask_dir():
+                try:
+                    import tkinter as tk
+                    from tkinter import filedialog
+                    root = tk.Tk()
+                    root.withdraw()
+                    root.attributes("-topmost", True)
+                    selected_dir = filedialog.askdirectory(title="저장 폴더를 선택하세요")
+                    root.destroy()
+                    res_queue.put(selected_dir)
+                except Exception as e:
+                    res_queue.put(e)
+                    
+            t = threading.Thread(target=ask_dir)
+            t.start()
+            t.join()
+            
+            selected_dir = res_queue.get()
+            if isinstance(selected_dir, Exception):
+                print(f"[Backend] Tkinter 스레드 에러: {selected_dir}")
+                return None
             if selected_dir:
                 return os.path.normpath(selected_dir)
     except Exception as e:

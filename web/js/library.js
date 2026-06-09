@@ -294,7 +294,7 @@ async function processFilePaths(paths) {
                     end: fileInfo.duration,
                     fps: 24,
                     speed: 1.0,
-                    resolution: "중간 (720p)",
+                    resolution: "원본",
                     numColors: 256,
                     useDither: false,
                     loopPlayback: true,

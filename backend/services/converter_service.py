@@ -42,7 +42,7 @@ def generate_dynamic_crop_expression(keyframes, attr, base_val):
     
     return expr
 
-def conversion_worker(file_id, input_path, output_path, start_time, end_time, fps, resolution, num_colors, use_dither, loop_playback, ffmpeg_exe, crop_params, status_callback, complete_callback, sleep_callback, audio_path=None, speed=1.0, format_type='gif', include_audio=True):
+def conversion_worker(file_id, input_path, output_path, start_time, end_time, fps, resolution, num_colors, use_dither, loop_playback, ffmpeg_exe, crop_params, status_callback, complete_callback, sleep_callback, audio_path=None, speed=1.0, format_type='gif', include_audio=True, optimization_method='none', lossy_level=30, eliminate_local_palette=True, reduce_colors=256):
     """실제로 FFmpeg 2-pass 인코딩을 수행하며 진행률을 보고합니다."""
     try:
         temp_dir = tempfile.gettempdir()
@@ -221,6 +221,57 @@ def conversion_worker(file_id, input_path, output_path, start_time, end_time, fp
             
         if process.returncode == 0:
             if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                # --- Post Processing: Gifsicle Optimization ---
+                if format_type == 'gif' and optimization_method != 'none':
+                    status_callback(file_id, "Gifsicle 최적화 적용 중...", 95)
+                    sleep_callback(0.01)
+                    
+                    # Locate gifsicle binary
+                    backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                    gifsicle_exe = os.path.join(backend_dir, 'bin', 'gifsicle.exe')
+                    if not os.path.exists(gifsicle_exe):
+                        gifsicle_exe = 'gifsicle' # fallback to system path
+                        
+                    # Prepare Gifsicle commands
+                    gifsicle_cmd = [gifsicle_exe]
+                    
+                    # 1. Unoptimize if coalesce is selected
+                    if optimization_method == 'coalesce':
+                        gifsicle_cmd.append('--unoptimize')
+                    else:
+                        # Optimization Level: -O2 (transparency) or -O3
+                        gifsicle_cmd.append('-O3')
+                        
+                    # 2. Lossy parameter
+                    if optimization_method == 'lossy':
+                        # ezgif level 15 usually maps to --lossy=30. Let's pass the level directly
+                        gifsicle_cmd.append(f'--lossy={lossy_level}')
+                        
+                    # 3. Colors Reduction
+                    if reduce_colors < 256:
+                        gifsicle_cmd.extend(['--colors', str(reduce_colors)])
+                        
+                    # 4. Eliminate Local Palettes
+                    # Note: Gifsicle automatically optimizes out local color tables during -O3/colors optimization.
+                    # No specific command-line flag exists.
+                        
+                    # Target files
+                    temp_opt_path = output_path + '.opt.gif'
+                    gifsicle_cmd.extend([output_path, '-o', temp_opt_path])
+                    
+                    try:
+                        opt_result = subprocess.run(gifsicle_cmd, capture_output=True, text=True, errors='ignore')
+                        if opt_result.returncode == 0 and os.path.exists(temp_opt_path) and os.path.getsize(temp_opt_path) > 0:
+                            # Replace original file with optimized one
+                            os.replace(temp_opt_path, output_path)
+                            print(f"[Backend Gifsicle] Optimized GIF successfully: {output_path}")
+                        else:
+                            print(f"[Backend Gifsicle] Gifsicle failed: {opt_result.stderr}. Using original FFmpeg output.")
+                            if os.path.exists(temp_opt_path): os.remove(temp_opt_path)
+                    except Exception as g_err:
+                        print(f"[Backend Gifsicle] Error running Gifsicle: {g_err}. Using original FFmpeg output.")
+                        if os.path.exists(temp_opt_path): os.remove(temp_opt_path)
+                
                 complete_callback(file_id, {"status": "success", "path": output_path})
             else:
                 complete_callback(file_id, {"status": "error", "message": "파일 생성 실패"})
@@ -231,7 +282,7 @@ def conversion_worker(file_id, input_path, output_path, start_time, end_time, fp
     except Exception as e:
         complete_callback(file_id, {"status": "error", "message": str(e)})
 
-def start_conversion(input_path, file_id, output_name, start_time, end_time, fps, resolution, save_dir, num_colors, use_dither, loop_playback, crop_params, status_callback, complete_callback, sleep_callback, audio_path=None, speed=1.0, format_type='gif', include_audio=True):
+def start_conversion(input_path, file_id, output_name, start_time, end_time, fps, resolution, save_dir, num_colors, use_dither, loop_playback, crop_params, status_callback, complete_callback, sleep_callback, audio_path=None, speed=1.0, format_type='gif', include_audio=True, optimization_method='none', lossy_level=30, eliminate_local_palette=True, reduce_colors=256):
     try:
         if not os.path.exists(save_dir):
             os.makedirs(save_dir, exist_ok=True)
@@ -248,7 +299,7 @@ def start_conversion(input_path, file_id, output_name, start_time, end_time, fps
         
         threading.Thread(
             target=conversion_worker, 
-            args=(file_id, input_path, output_path, start_time, end_time, fps, resolution, num_colors, use_dither, loop_playback, ffmpeg_exe, crop_params, status_callback, complete_callback, sleep_callback, audio_path, speed, format_type, include_audio),
+            args=(file_id, input_path, output_path, start_time, end_time, fps, resolution, num_colors, use_dither, loop_playback, ffmpeg_exe, crop_params, status_callback, complete_callback, sleep_callback, audio_path, speed, format_type, include_audio, optimization_method, lossy_level, eliminate_local_palette, reduce_colors),
             daemon=True
         ).start()
         

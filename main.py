@@ -14,8 +14,9 @@ from backend.services.converter_service import start_conversion
 from backend.utils.os_utils import get_os_info as fetch_os_info, open_folder, open_file_location as fetch_file_location, pick_videos as fetch_videos, select_save_directory as fetch_save_dir
 from backend.utils.process_manager import cleanup_processes, kill_orphaned_ffmpegs
 from backend.services.youtube_service import download_youtube_video as fetch_youtube_download
+from backend.services.update_service import check_for_updates, download_update, launch_updater_and_exit
 
-VERSION = "1.6.0"
+VERSION = "1.5.0"
 
 # pywebview 전역 참조
 try:
@@ -299,12 +300,30 @@ def clear_youtube_cache():
         return {"status": "error", "message": str(e)}
 
 @eel.expose
-def request_conversion(input_path, file_id, output_name, start_time, end_time, fps, resolution, num_colors=256, use_dither=False, loop_playback=True, crop_params=None, audio_path=None, speed=1.0, format_type='gif', include_audio=True):
+def check_app_update():
+    return check_for_updates(VERSION)
+
+@eel.expose
+def start_app_update(download_url):
+    def progress_callback(percent):
+        eel.update_app_download_progress(percent)
+    
+    def run_update():
+        res = download_update(download_url, progress_callback)
+        if res.get("status") == "success":
+            launch_updater_and_exit(res["zip_path"], res["root_dir"])
+            
+    threading.Thread(target=run_update, daemon=True).start()
+    return {"status": "processing"}
+
+@eel.expose
+def request_conversion(input_path, file_id, output_name, start_time, end_time, fps, resolution, num_colors=256, use_dither=False, loop_playback=True, crop_params=None, audio_path=None, speed=1.0, format_type='gif', include_audio=True, optimization_method='none', lossy_level=30, eliminate_local_palette=True, reduce_colors=256):
     save_dir = app_config.get("save_dir", DEFAULT_SAVE_DIR)
     return start_conversion(
         input_path, file_id, output_name, start_time, end_time, fps, resolution, 
         save_dir, num_colors, use_dither, loop_playback, crop_params,
-        eel.update_conversion_status, eel.conversion_completed, eel.sleep, audio_path, speed, format_type, include_audio
+        eel.update_conversion_status, eel.conversion_completed, eel.sleep, audio_path, speed, format_type, include_audio,
+        optimization_method, lossy_level, eliminate_local_palette, reduce_colors
     )
 
 @eel.expose
@@ -378,13 +397,11 @@ if __name__ == '__main__':
     try:
         if current_os == 'Windows':
             eel.start('index.html', 
-                      size=(1280, 850), 
+                      size=(1280, 960), 
                       port=8889, 
                       mode='edge', 
                       cmdline_args=[
-                          '--app-id=gif-converter', 
                           '--disable-http-cache',
-                          '--hide-scrollbars',
                           '--window-name="GIF Converter"'
                       ])
         elif current_os == 'Darwin':
@@ -398,7 +415,7 @@ if __name__ == '__main__':
             t.start()
             
             time.sleep(1)
-            window = webview.create_window('GIF Converter', 'http://127.0.0.1:8889', width=1280, height=850, zoomable=False)
+            window = webview.create_window('GIF Converter', 'http://127.0.0.1:8889', width=1280, height=960, zoomable=False)
             _webview_window = window 
             
             def on_drop(e):
@@ -419,12 +436,12 @@ if __name__ == '__main__':
             # 창이 닫힌 후 모든 프로세스 정리
             cleanup_processes()
         else:
-            eel.start('index.html', size=(1280, 800), port=8889, mode='default')
+            eel.start('index.html', size=(1280, 960), port=8889, mode='default')
             
     except Exception as e:
         print(f"창 실행 실패: {e}")
         try:
-            eel.start('index.html', size=(1280, 800), port=8889, mode='default')
+            eel.start('index.html', size=(1280, 960), port=8889, mode='default')
         except: pass
     
     # 프로그램 종료 전 최종 정리

@@ -430,6 +430,38 @@
                 <!-- Files will be dynamically injected here -->
             </div>
 
+            <!-- App Update Notification Card (Pinned at the bottom of library sidebar) -->
+            <div id="sidebar-update-card" class="hidden mx-1 mb-2 p-4 bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-2xl shadow-lg border border-indigo-400/20 text-white flex flex-col gap-3 relative overflow-hidden animate-in slide-in-from-bottom duration-300">
+                <!-- Decorative background elements -->
+                <div class="absolute -right-4 -bottom-4 w-24 h-24 bg-white/5 rounded-full pointer-events-none"></div>
+                <div class="absolute -left-6 -top-6 w-16 h-16 bg-white/5 rounded-full pointer-events-none"></div>
+                
+                <div class="flex items-start gap-3">
+                    <div class="flex items-center justify-center bg-white/10 p-1.5 rounded-xl shrink-0">
+                        <span class="material-symbols-outlined text-2xl text-indigo-100">system_update_alt</span>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-lg font-black tracking-tight text-white leading-tight">새로운 업데이트 발견!</p>
+                        <p id="sidebar-update-version-text" class="text-sm text-indigo-200 mt-1.5 font-bold">최신 버전: v1.6.0</p>
+                    </div>
+                </div>
+                
+                <p class="text-[14px] text-indigo-100 leading-relaxed font-semibold pl-0.5">
+                    더욱 최적화된 GIF 인코딩과 최신 기능들을 만나보세요.
+                </p>
+                
+                <div class="flex gap-2">
+                    <button id="sidebar-update-notes-btn" class="flex-1 py-3.5 bg-indigo-700/50 hover:bg-indigo-700/80 text-white font-bold rounded-xl text-sm transition-all active:scale-95 border border-indigo-400/30 flex items-center justify-center gap-1">
+                        <span class="material-symbols-outlined text-base">assignment</span>
+                        내용 보기
+                    </button>
+                    <button id="sidebar-update-install-btn" class="flex-1 py-3.5 bg-white text-indigo-600 hover:bg-indigo-50 font-bold rounded-xl text-sm transition-all active:scale-95 shadow-md shadow-indigo-700/10 flex items-center justify-center gap-1.5">
+                        <span class="material-symbols-outlined text-base">download</span>
+                        지금 설치
+                    </button>
+                </div>
+            </div>
+
             <!-- Bulk Delete Action Bar -->
             <div id="bulk-delete-bar" class="absolute bottom-4 left-3 right-3 bg-white shadow-[0_-8px_24px_rgba(0,0,0,0.08),0_12px_24px_rgba(239,68,68,0.15)] border border-red-50 rounded-2xl p-4 flex items-center justify-between transition-all duration-300 translate-y-32 opacity-0 pointer-events-none z-50">
                 <div class="flex flex-col">
@@ -708,12 +740,12 @@
                     <label class="block text-xs font-bold text-on-surface-variant uppercase tracking-widest font-sans">해상도</label>
                     <div class="relative custom-dropdown" id="res-dropdown">
                         <button class="dropdown-trigger w-full bg-surface-container-lowest border-none rounded-xl py-3 px-4 text-base font-medium flex items-center justify-between shadow-sm hover:bg-slate-50 transition-colors">
-                            <span id="res-selected">중간 (720p)</span>
+                            <span id="res-selected">원본</span>
                             <span class="material-symbols-outlined text-slate-400">expand_more</span>
                         </button>
                         <ul class="dropdown-menu absolute z-50 w-full mt-1 bg-white rounded-xl shadow-2xl border border-slate-100 overflow-hidden">
-                            <li class="dropdown-item px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors" data-value="원본">원본</li>
-                            <li class="dropdown-item px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors active" data-value="중간 (720p)">중간 (720p)</li>
+                            <li class="dropdown-item px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors active" data-value="원본">원본</li>
+                            <li class="dropdown-item px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors" data-value="중간 (720p)">중간 (720p)</li>
                             <li class="dropdown-item px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors" data-value="작게 (480p)">작게 (480p)</li>
                             <li class="dropdown-item px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors" data-value="직접 설정">직접 설정</li>
                         </ul>
@@ -889,7 +921,7 @@
                     <div id="audio-toggle-container" class="hidden format-dependent items-center justify-between">
                         <div class="flex flex-col">
                             <span class="text-sm font-bold text-on-surface">소리 포함</span>
-                            <span class="text-[10px] text-on-surface-variant">오디오 트랙 유지</span>
+                            <span class="text-[11px] text-slate-500 font-medium">오디오 트랙 유지</span>
                         </div>
                         <div id="audio-toggle" data-active="true"
                             class="w-10 h-5 bg-primary rounded-full relative p-0.5 cursor-pointer transition-colors">
@@ -900,7 +932,7 @@
                     <div id="loop-toggle-container" class="flex format-dependent items-center justify-between">
                         <div class="flex flex-col">
                             <span class="text-sm font-bold text-on-surface">반복 재생</span>
-                            <span class="text-[10px] text-on-surface-variant">애니메이션 연속 재생</span>
+                            <span class="text-[11px] text-slate-500 font-medium">애니메이션 연속 재생</span>
                         </div>
                         <div id="loop-toggle" data-active="true"
                             class="w-10 h-5 bg-primary rounded-full relative p-0.5 cursor-pointer transition-colors">
@@ -911,11 +943,88 @@
                     <div id="dither-toggle-container" class="flex format-dependent items-center justify-between">
                         <div class="flex flex-col">
                             <span class="text-sm font-bold text-on-surface">디더링</span>
-                            <span class="text-[10px] text-on-surface-variant">부드러운 그라데이션</span>
+                            <span class="text-[11px] text-slate-500 font-medium">부드러운 그라데이션</span>
                         </div>
                         <div id="dither-toggle" data-active="false"
                             class="w-10 h-5 bg-slate-300 rounded-full relative p-0.5 cursor-pointer transition-colors">
                             <div class="w-4 h-4 bg-white rounded-full transition-transform pointer-events-none shadow-sm"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- [신규] GIF Optimization Options -->
+                <div id="gifsicle-opts-wrapper" class="space-y-4 format-dependent">
+                    <!-- Toggle to Enable/Disable Gifsicle Optimization -->
+                    <div class="bg-surface-container-lowest p-4 rounded-2xl flex flex-col gap-4 shadow-sm border border-slate-100/50">
+                        <div id="gifsicle-enable-container" class="flex items-center justify-between">
+                            <div class="flex flex-col">
+                                <span class="text-sm font-bold text-on-surface">GIF 최적화 사용</span>
+                                <span class="text-[11px] text-slate-500 font-medium">용량 절감 기술 활성화</span>
+                            </div>
+                            <div id="gifsicle-enable-toggle" data-active="false"
+                                class="w-10 h-5 bg-slate-300 rounded-full relative p-0.5 cursor-pointer transition-colors">
+                                <div class="w-4 h-4 bg-white rounded-full transition-transform pointer-events-none shadow-sm"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Gifsicle Sub-options (Only shown when Toggle is Active) -->
+                    <div id="gifsicle-opts-container" class="space-y-4 hidden pt-2 border-t border-slate-200/50">
+                        <div class="space-y-2">
+                            <label class="block text-xs font-bold text-on-surface-variant uppercase tracking-widest font-sans">최적화 방식 (Gifsicle)</label>
+                            <div class="relative custom-dropdown" id="opt-method-dropdown">
+                                <button class="dropdown-trigger w-full bg-surface-container-lowest border-none rounded-xl py-3 px-4 text-base font-medium flex items-center justify-between shadow-sm hover:bg-slate-50 transition-colors">
+                                    <span id="opt-method-selected">Lossy GIF (손실 압축)</span>
+                                    <span class="material-symbols-outlined text-slate-400">tune</span>
+                                </button>
+                                <ul class="dropdown-menu absolute z-50 w-full mt-1 bg-white rounded-xl shadow-2xl border border-slate-100 overflow-hidden">
+                                    <li class="dropdown-item px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors active" data-value="lossy">Lossy GIF (손실 압축)</li>
+                                    <li class="dropdown-item px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors" data-value="transparency">투명도 최적화</li>
+                                    <li class="dropdown-item px-4 py-3 hover:bg-slate-50 cursor-pointer transition-colors" data-value="coalesce">프레임 병합 (Coalesce)</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <!-- Compression Level (Lossy only) -->
+                        <div id="lossy-level-container" class="space-y-3 hidden">
+                            <div class="flex justify-between items-center">
+                                <label class="text-xs font-bold text-on-surface-variant uppercase tracking-widest font-sans">압축률 (Lossy Level)</label>
+                                <span id="lossy-level-display" class="text-sm font-bold text-primary font-sans">15</span>
+                            </div>
+                            <div class="flex flex-col">
+                                <input id="lossy-level-slider"
+                                    class="w-full h-2 bg-surface-container-highest rounded-full appearance-none cursor-pointer accent-primary"
+                                    max="100" min="5" step="1" type="range" value="15" />
+                                <div class="relative h-4 text-[10px] text-slate-500 font-bold mx-[10px] mt-1.5">
+                                    <span class="absolute left-0 -translate-x-1/2">5</span>
+                                    <span class="absolute left-1/2 -translate-x-1/2">50</span>
+                                    <span class="absolute left-full -translate-x-1/2">100</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Local Color Tables & Max Colors -->
+                        <div class="bg-surface-container-lowest p-4 rounded-2xl flex flex-col gap-4 shadow-sm border border-slate-100/50">
+                            <div id="eliminate-local-palette-container" class="flex items-center justify-between">
+                                <div class="flex flex-col">
+                                    <span class="text-sm font-bold text-on-surface">로컬 컬러 테이블 제거</span>
+                                    <span class="text-[11px] text-slate-500 font-medium">글로벌 팔레트만 사용 (용량 감소)</span>
+                                </div>
+                                <div id="eliminate-local-palette-toggle" data-active="true"
+                                    class="w-10 h-5 bg-primary rounded-full relative p-0.5 cursor-pointer transition-colors">
+                                    <div class="w-4 h-4 bg-white rounded-full transition-transform pointer-events-none translate-x-5 shadow-sm"></div>
+                                </div>
+                            </div>
+
+                            <!-- Reduced Colors Option inside Gifsicle -->
+                            <div id="reduce-colors-container" class="flex flex-col gap-1.5">
+                                <span class="text-sm font-bold text-on-surface">최종 색상 제한</span>
+                                <div class="relative group mt-1">
+                                    <input type="number" id="reduce-colors-input" 
+                                        class="w-full bg-slate-50 border-2 border-slate-100 rounded-xl px-4 py-2 text-slate-800 focus:border-indigo-500 focus:ring-0 transition-all outline-none text-sm font-bold"
+                                        placeholder="256" min="2" max="256" value="256">
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1086,6 +1195,27 @@
                         </button>
                     </div>
                 </div>
+
+                <!-- App Update Section -->
+                <div class="space-y-4 pt-4 border-t border-slate-100">
+                    <div class="flex items-center justify-between text-slate-700 font-bold">
+                        <div class="flex items-center gap-2">
+                            <span class="material-symbols-outlined text-indigo-500">system_update_alt</span>
+                            <span>앱 업데이트</span>
+                        </div>
+                        <span id="app-update-version-status" class="text-[10px] bg-slate-100 px-2 py-0.5 rounded-full text-slate-500">버전: v1.6.0</span>
+                    </div>
+                    
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between px-1">
+                            <span class="text-[11px] font-bold text-slate-500" id="app-update-msg">버전 상태를 확인해 주세요.</span>
+                        </div>
+                        <button id="check-update-btn" class="w-full py-2.5 bg-slate-50 text-slate-600 font-bold rounded-xl hover:bg-indigo-50 hover:text-indigo-600 transition-all border border-slate-200 hover:border-indigo-100 flex items-center justify-center gap-2">
+                            <span class="material-symbols-outlined text-sm">cached</span>
+                            업데이트 확인
+                        </button>
+                    </div>
+                </div>
                 
                 <div class="pt-4 border-t border-slate-100 flex justify-end">
                     <button id="settings-confirm-btn" class="px-6 py-2.5 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-md">
@@ -1174,6 +1304,61 @@
             <span id="yt-download-progress-text" class="text-rose-400 font-bold text-2xl mt-1">0%</span>
         </div>
         <p class="text-white/40 text-xs">최고 화질을 위해 비디오와 오디오를 병합하고 있습니다.</p>
+    </div>
+    <!-- App Update Download Progress Overlay -->
+    <div id="app-update-overlay" class="fixed inset-0 bg-black/80 z-[12000] flex flex-col items-center justify-center gap-6 hidden">
+        <div class="relative w-24 h-24">
+            <div class="absolute inset-0 border-4 border-white/10 rounded-full"></div>
+            <div class="absolute inset-0 border-4 border-t-indigo-500 rounded-full animate-spin"></div>
+            <div class="absolute inset-0 flex items-center justify-center p-5">
+                <span class="material-symbols-outlined text-4xl text-indigo-500">system_update_alt</span>
+            </div>
+        </div>
+        <div class="flex flex-col items-center gap-2">
+            <span class="text-white font-bold text-xl tracking-tight">최신 버전 업데이트 다운로드 중...</span>
+            <div class="w-64 h-2 bg-white/10 rounded-full overflow-hidden mt-2">
+                <div id="app-update-bar" class="h-full bg-indigo-500 transition-all duration-300" style="width: 0%"></div>
+            </div>
+            <span id="app-update-progress-text" class="text-indigo-400 font-bold text-2xl mt-1">0%</span>
+        </div>
+        <p class="text-white/40 text-xs">다운로드가 완료되면 프로그램이 자동으로 교체 설치 및 재기동됩니다.</p>
+    </div>
+    <!-- App Update Notes Modal -->
+    <div id="update-notes-modal" class="hidden fixed inset-0 z-[10000] flex items-center justify-center p-6 pointer-events-none opacity-0 transition-all duration-300">
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"></div>
+        <div class="relative bg-white w-full max-w-md rounded-3xl shadow-2xl border border-white/20 overflow-hidden transform scale-95 transition-all duration-300">
+            <!-- Modal Header -->
+            <div class="bg-indigo-600 px-6 py-5 flex items-center justify-between text-white">
+                <div class="flex items-center gap-2">
+                    <span class="material-symbols-outlined">assignment</span>
+                    <h3 class="font-bold text-lg">업데이트 세부 내용</h3>
+                </div>
+                <button id="close-update-notes-btn" class="p-1 hover:bg-white/20 rounded-full transition-all">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            
+            <!-- Modal Body -->
+            <div class="p-6 space-y-4">
+                <div class="flex flex-col gap-1">
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-widest pl-1">릴리즈 버전</span>
+                    <div id="update-notes-version" class="text-lg font-black text-indigo-600">v1.6.0</div>
+                </div>
+                
+                <div class="flex flex-col gap-1 pt-2 border-t border-slate-100">
+                    <span class="text-xs font-bold text-slate-400 uppercase tracking-widest pl-1">업데이트 상세 내용</span>
+                    <div id="update-notes-content" class="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-xs text-slate-600 leading-relaxed font-semibold max-h-60 overflow-y-auto whitespace-pre-wrap">
+                        로컬 컬러 테이블 최적화 및 속도 향상.
+                    </div>
+                </div>
+                
+                <div class="pt-4 border-t border-slate-100 flex justify-end">
+                    <button id="update-notes-confirm-btn" class="px-6 py-2.5 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-md">
+                        확인
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
     <div id="custom-tooltip">툴팁 내용</div>
 </body>

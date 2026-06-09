@@ -132,6 +132,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const loopToggle = document.getElementById('loop-toggle');
     if (loopToggle) {
         loopToggle.addEventListener('click', () => {
+            if (!window.selectedFileObj) return;
             const seg = getActiveSegment(window.selectedFileObj);
             if (!seg) return;
             seg.loopPlayback = !seg.loopPlayback;
@@ -146,6 +147,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const audioToggle = document.getElementById('audio-toggle');
     if (audioToggle) {
         audioToggle.addEventListener('click', () => {
+            if (!window.selectedFileObj) return;
             const seg = getActiveSegment(window.selectedFileObj);
             if (!seg) return;
             seg.includeAudio = !seg.includeAudio;
@@ -160,6 +162,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const ditherToggle = document.getElementById('dither-toggle');
     if (ditherToggle) {
         ditherToggle.addEventListener('click', () => {
+            if (!window.selectedFileObj) return;
             const seg = getActiveSegment(window.selectedFileObj);
             if (!seg) return;
             seg.useDither = !seg.useDither;
@@ -175,6 +178,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const formatDropdown = document.getElementById('format-dropdown');
     if (formatDropdown) {
         formatDropdown.addEventListener('change', (e) => {
+            if (!window.selectedFileObj) return;
             const seg = getActiveSegment(window.selectedFileObj);
             if (!seg) return;
             seg.format = e.detail.value;
@@ -190,6 +194,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const resDropdown = document.getElementById('res-dropdown');
     if (resDropdown) {
         resDropdown.addEventListener('change', (e) => {
+            if (!window.selectedFileObj) return;
             const seg = getActiveSegment(window.selectedFileObj);
             if (!seg) return;
             seg.resolution = e.detail.value;
@@ -205,9 +210,89 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+    // [신규] Gifsicle Optimization dropdown & slider event listeners
+    const gifsicleEnableToggle = document.getElementById('gifsicle-enable-toggle');
+    if (gifsicleEnableToggle) {
+        gifsicleEnableToggle.addEventListener('click', () => {
+            if (!window.selectedFileObj) return;
+            const seg = getActiveSegment(window.selectedFileObj);
+            if (!seg) return;
+            const enable = (gifsicleEnableToggle.getAttribute('data-active') !== 'true');
+            if (enable) {
+                // Enable optimization: default to 'lossy' if currently 'none'
+                seg.optimizationMethod = (seg.optimizationMethod && seg.optimizationMethod !== 'none') ? seg.optimizationMethod : 'lossy';
+            } else {
+                // Disable optimization
+                seg.optimizationMethod = 'none';
+            }
+            updateToggleUI(gifsicleEnableToggle, enable);
+            if (window.selectedFileObj.isBatchSync) {
+                window.selectedFileObj.segments.forEach(s => s.optimizationMethod = seg.optimizationMethod);
+            }
+            syncUIToFile(window.selectedFileObj);
+        });
+    }
+
+    const optMethodDropdown = document.getElementById('opt-method-dropdown');
+    if (optMethodDropdown) {
+        optMethodDropdown.addEventListener('change', (e) => {
+            if (!window.selectedFileObj) return;
+            const seg = getActiveSegment(window.selectedFileObj);
+            if (!seg) return;
+            seg.optimizationMethod = e.detail.value;
+            if (window.selectedFileObj.isBatchSync) {
+                window.selectedFileObj.segments.forEach(s => s.optimizationMethod = seg.optimizationMethod);
+            }
+            syncUIToFile(window.selectedFileObj);
+        });
+    }
+
+    const lossyLevelSlider = document.getElementById('lossy-level-slider');
+    if (lossyLevelSlider) {
+        lossyLevelSlider.addEventListener('input', (e) => {
+            if (!window.selectedFileObj) return;
+            const seg = getActiveSegment(window.selectedFileObj);
+            if (!seg) return;
+            seg.lossyLevel = parseInt(e.target.value);
+            document.getElementById('lossy-level-display').textContent = seg.lossyLevel;
+            if (window.selectedFileObj.isBatchSync) {
+                window.selectedFileObj.segments.forEach(s => s.lossyLevel = seg.lossyLevel);
+            }
+        });
+    }
+
+    const localPaletteToggle = document.getElementById('eliminate-local-palette-toggle');
+    if (localPaletteToggle) {
+        localPaletteToggle.addEventListener('click', () => {
+            if (!window.selectedFileObj) return;
+            const seg = getActiveSegment(window.selectedFileObj);
+            if (!seg) return;
+            seg.eliminateLocalPalette = (localPaletteToggle.getAttribute('data-active') !== 'true');
+            updateToggleUI(localPaletteToggle, seg.eliminateLocalPalette);
+            if (window.selectedFileObj.isBatchSync) {
+                window.selectedFileObj.segments.forEach(s => s.eliminateLocalPalette = seg.eliminateLocalPalette);
+            }
+            syncUIToFile(window.selectedFileObj);
+        });
+    }
+
+    const reduceColorsInput = document.getElementById('reduce-colors-input');
+    if (reduceColorsInput) {
+        reduceColorsInput.addEventListener('input', (e) => {
+            if (!window.selectedFileObj) return;
+            const seg = getActiveSegment(window.selectedFileObj);
+            if (!seg) return;
+            seg.reduceColors = parseInt(e.target.value) || 256;
+            if (window.selectedFileObj.isBatchSync) {
+                window.selectedFileObj.segments.forEach(s => s.reduceColors = seg.reduceColors);
+            }
+        });
+    }
+
     const colorDropdown = document.getElementById('colors-dropdown');
     if (colorDropdown) {
         colorDropdown.addEventListener('change', (e) => {
+            if (!window.selectedFileObj) return;
             const seg = getActiveSegment(window.selectedFileObj);
             if (!seg) return;
             
@@ -227,6 +312,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const fpsDropdown = document.getElementById('fps-dropdown');
     if (fpsDropdown) {
         fpsDropdown.addEventListener('change', (e) => {
+            if (!window.selectedFileObj) return;
             const seg = getActiveSegment(window.selectedFileObj);
             if (!seg) return;
             seg.fps = parseInt(e.detail.value);
@@ -241,6 +327,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const fpsSlider = document.getElementById('fps-slider');
     if (fpsSlider) {
         fpsSlider.addEventListener('input', (e) => {
+            if (!window.selectedFileObj) return;
             const seg = getActiveSegment(window.selectedFileObj);
             if (!seg) return;
             seg.fps = parseInt(e.target.value);
@@ -255,6 +342,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const speedSlider = document.getElementById('speed-slider');
     if (speedSlider) {
         speedSlider.addEventListener('input', (e) => {
+            if (!window.selectedFileObj) return;
             const seg = getActiveSegment(window.selectedFileObj);
             if (!seg) return;
             seg.speed = parseFloat(e.target.value);
@@ -276,6 +364,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     document.querySelectorAll('.speed-preset-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
+            if (!window.selectedFileObj) return;
             const seg = getActiveSegment(window.selectedFileObj);
             if (!seg) return;
             seg.speed = parseFloat(btn.dataset.speed);
@@ -372,6 +461,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (window.selectedFileObj) generateFilmstrip(window.selectedFileObj);
         });
     }
+
+    // Check for updates on startup
+    setTimeout(checkUpdateOnStartup, 1500);
 });
 
 function initSettingsModal() {
@@ -395,6 +487,60 @@ function initSettingsModal() {
             const newDir = await eel.select_save_directory()();
             if (newDir) {
                 document.getElementById('current-save-path').textContent = newDir;
+            }
+        });
+    }
+
+    const checkUpdateBtn = document.getElementById('check-update-btn');
+    if (checkUpdateBtn) {
+        checkUpdateBtn.addEventListener('click', async () => {
+            if (window.latestUpdateUrl) {
+                const confirmed = await showCustomConfirm({
+                    title: "앱 업데이트 설치",
+                    message: "최신 버전 다운로드 및 자동 설치를 시작하시겠습니까?<br><b class='text-indigo-600'>업데이트 시 현재 프로그램이 자동 재기동됩니다.</b>",
+                    okText: "업데이트 시작",
+                    okColor: "indigo",
+                    icon: "system_update_alt"
+                });
+                if (confirmed) {
+                    document.getElementById('app-update-overlay').classList.remove('hidden');
+                    eel.start_app_update(window.latestUpdateUrl)();
+                }
+            } else {
+                checkUpdateBtn.disabled = true;
+                const origContent = checkUpdateBtn.innerHTML;
+                checkUpdateBtn.innerHTML = `<span class="material-symbols-outlined text-sm animate-spin">cached</span>확인 중...`;
+                try {
+                    const res = await eel.check_app_update()();
+                    if (res && res.update_available) {
+                        window.latestUpdateUrl = res.download_url;
+                        const badge = document.getElementById('app-update-version-status');
+                        if (badge) {
+                            badge.textContent = `새 버전: v${res.latest_version}`;
+                            badge.classList.remove('bg-slate-100', 'text-slate-500');
+                            badge.classList.add('bg-indigo-100', 'text-indigo-600', 'font-black');
+                        }
+                        const msg = document.getElementById('app-update-msg');
+                        if (msg) {
+                            msg.innerHTML = `<span class="text-indigo-600 font-black">업데이트 가능 (v${res.latest_version})</span>`;
+                        }
+                        checkUpdateBtn.innerHTML = `<span class="material-symbols-outlined text-sm">system_update_alt</span>지금 업데이트 설치`;
+                        checkUpdateBtn.classList.remove('bg-slate-50', 'text-slate-600');
+                        checkUpdateBtn.classList.add('bg-indigo-600', 'text-white', 'hover:bg-indigo-700');
+                        checkUpdateBtn.disabled = false;
+                        showToast(`새버전 v${res.latest_version} 업데이트가 가능합니다!`);
+                    } else {
+                        const msg = document.getElementById('app-update-msg');
+                        if (msg) msg.textContent = "현재 최신 버전을 사용하고 있습니다.";
+                        checkUpdateBtn.innerHTML = origContent;
+                        checkUpdateBtn.disabled = false;
+                        showToast("현재 최신 버전을 사용하고 있습니다.");
+                    }
+                } catch(err) {
+                    checkUpdateBtn.innerHTML = origContent;
+                    checkUpdateBtn.disabled = false;
+                    showToast("업데이트 조회 오류가 발생했습니다.");
+                }
             }
         });
     }
@@ -511,4 +657,110 @@ window.addEventListener('resize', () => {
     if (window.updateCropOverlaySize) {
         window.updateCropOverlaySize();
     }
+});
+
+// App Update Functions
+eel.expose(update_app_download_progress);
+function update_app_download_progress(percent) {
+    const overlay = document.getElementById('app-update-overlay');
+    const bar = document.getElementById('app-update-bar');
+    const text = document.getElementById('app-update-progress-text');
+    
+    if (overlay) overlay.classList.remove('hidden');
+    if (bar) bar.style.width = `${percent}%`;
+    if (text) text.textContent = `${percent}%`;
+    
+    if (percent >= 100) {
+        const statusLabel = document.querySelector('#app-update-overlay span.text-white');
+        if (statusLabel) statusLabel.textContent = "다운로드 완료! 파일을 교체하고 재기동합니다...";
+    }
+}
+
+async function checkUpdateOnStartup() {
+    try {
+        const res = await eel.check_app_update()();
+        if (res && res.update_available) {
+            showToast(`새버전 v${res.latest_version} 업데이트가 가능합니다. 설정 창에서 업데이트를 진행해주세요.`, 10000);
+            const badge = document.getElementById('app-update-version-status');
+            if (badge) {
+                badge.textContent = `새 버전: v${res.latest_version}`;
+                badge.classList.remove('bg-slate-100', 'text-slate-500');
+                badge.classList.add('bg-indigo-100', 'text-indigo-600', 'font-black');
+            }
+            const msg = document.getElementById('app-update-msg');
+            if (msg) {
+                msg.innerHTML = `<span class="text-indigo-600 font-black">업데이트 가능 (v${res.latest_version})</span>`;
+            }
+            window.latestUpdateUrl = res.download_url;
+            
+            // Change check-update-btn to do update
+            const btn = document.getElementById('check-update-btn');
+            if (btn) {
+                btn.innerHTML = `<span class="material-symbols-outlined text-sm">system_update_alt</span>지금 업데이트 설치`;
+                btn.classList.remove('bg-slate-50', 'text-slate-600');
+                btn.classList.add('bg-indigo-600', 'text-white', 'hover:bg-indigo-700');
+            }
+
+            // Show sidebar update card
+            const updateCard = document.getElementById('sidebar-update-card');
+            const updateVersionText = document.getElementById('sidebar-update-version-text');
+            const updateInstallBtn = document.getElementById('sidebar-update-install-btn');
+            const updateNotesBtn = document.getElementById('sidebar-update-notes-btn');
+            
+            if (updateCard) {
+                updateCard.classList.remove('hidden');
+                if (updateVersionText) {
+                    updateVersionText.textContent = `최신 버전: v${res.latest_version}`;
+                }
+                if (updateInstallBtn) {
+                    const newBtn = updateInstallBtn.cloneNode(true);
+                    updateInstallBtn.parentNode.replaceChild(newBtn, updateInstallBtn);
+                    newBtn.addEventListener('click', async () => {
+                        const confirmed = await showCustomConfirm({
+                            title: "앱 업데이트 설치",
+                            message: "최신 버전 다운로드 및 자동 설치를 시작하시겠습니까?<br><b class='text-indigo-600'>업데이트 시 현재 프로그램이 자동 재기동됩니다.</b>",
+                            okText: "업데이트 시작",
+                            okColor: "indigo",
+                            icon: "system_update_alt"
+                        });
+                        if (confirmed) {
+                            document.getElementById('app-update-overlay').classList.remove('hidden');
+                            eel.start_app_update(window.latestUpdateUrl)();
+                        }
+                    });
+                }
+                if (updateNotesBtn) {
+                    // Populate release notes and bind modal click
+                    updateNotesBtn.addEventListener('click', () => {
+                        const verEl = document.getElementById('update-notes-version');
+                        const contentEl = document.getElementById('update-notes-content');
+                        if (verEl) verEl.textContent = `v${res.latest_version}`;
+                        if (contentEl) contentEl.textContent = res.release_notes || "업데이트 상세 내용이 없습니다.";
+                        showModal('update-notes-modal');
+                    });
+                }
+            }
+        }
+    } catch(e) {
+        console.error("Startup update check failed:", e);
+    }
+}
+
+// Bind events for App Update Notes Modal
+function initUpdateNotesModalEvents() {
+    const modal = document.getElementById('update-notes-modal');
+    const closeBtn = document.getElementById('close-update-notes-btn');
+    const confirmBtn = document.getElementById('update-notes-confirm-btn');
+    
+    if (closeBtn) {
+        closeBtn.addEventListener('click', () => hideModal('update-notes-modal'));
+    }
+    if (confirmBtn) {
+        confirmBtn.addEventListener('click', () => hideModal('update-notes-modal'));
+    }
+}
+
+// Initialize on DOMContentLoaded
+document.addEventListener('DOMContentLoaded', () => {
+    initUpdateNotesModalEvents();
 });

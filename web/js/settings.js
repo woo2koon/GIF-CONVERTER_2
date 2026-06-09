@@ -155,7 +155,7 @@ function syncUIToFile(fileObj) {
     }
 
     // Resolution
-    const resValue = seg.resolution || "중간 (720p)";
+    const resValue = seg.resolution || "원본";
     const resItems = document.querySelectorAll('#res-dropdown .dropdown-item');
     resItems.forEach(item => {
         if (item.dataset.value === resValue) {
@@ -193,6 +193,73 @@ function syncUIToFile(fileObj) {
             document.getElementById('colors-selected').textContent = item.textContent;
         }
     });
+
+    // --- Gifsicle Optimizations Sync ---
+    const gifsicleWrapper = document.getElementById('gifsicle-opts-wrapper');
+    if (gifsicleWrapper) {
+        const showGifsicle = (formatValue === 'gif');
+        gifsicleWrapper.classList.toggle('hidden', !showGifsicle);
+        gifsicleWrapper.style.display = showGifsicle ? 'block' : 'none';
+    }
+
+    const optMethod = seg.optimizationMethod || 'none';
+    const optEnabled = (optMethod !== 'none');
+    
+    // Sync Enable/Disable toggle
+    const enableToggle = document.getElementById('gifsicle-enable-toggle');
+    if (enableToggle) {
+        updateToggleUI(enableToggle, optEnabled);
+    }
+
+    // Optimization Container visibility
+    const gifsicleContainer = document.getElementById('gifsicle-opts-container');
+    if (gifsicleContainer) {
+        const showContainer = (formatValue === 'gif' && optEnabled);
+        gifsicleContainer.classList.toggle('hidden', !showContainer);
+        gifsicleContainer.style.display = showContainer ? 'block' : 'none';
+    }
+
+    // Optimization Method Dropdown Sync
+    const optDropdownItems = document.querySelectorAll('#opt-method-dropdown .dropdown-item');
+    optDropdownItems.forEach(item => {
+        const active = (item.dataset.value === optMethod);
+        item.classList.toggle('active', active);
+        if (active) {
+            document.getElementById('opt-method-selected').textContent = item.textContent;
+        }
+    });
+
+    // Lossy Level Container Visibility & Slider Sync
+    const lossyContainer = document.getElementById('lossy-level-container');
+    if (lossyContainer) {
+        const showLossy = (formatValue === 'gif' && optMethod === 'lossy');
+        lossyContainer.classList.toggle('hidden', !showLossy);
+        lossyContainer.style.display = showLossy ? 'block' : 'none';
+        
+        const lossyVal = (seg.lossyLevel !== undefined) ? seg.lossyLevel : 15;
+        const lossySlider = document.getElementById('lossy-level-slider');
+        if (lossySlider) lossySlider.value = lossyVal;
+        const lossyDisplay = document.getElementById('lossy-level-display');
+        if (lossyDisplay) lossyDisplay.textContent = lossyVal;
+    }
+
+    // Eliminate Local Palette Toggle Sync
+    const localPaletteToggle = document.getElementById('eliminate-local-palette-toggle');
+    const localPaletteVal = (seg.eliminateLocalPalette !== undefined) ? seg.eliminateLocalPalette : true;
+    if (localPaletteToggle) {
+        updateToggleUI(localPaletteToggle, localPaletteVal);
+    }
+
+    // Reduce Colors Input Sync
+    const reduceColorsInput = document.getElementById('reduce-colors-input');
+    if (reduceColorsInput) {
+        reduceColorsInput.value = (seg.reduceColors !== undefined) ? seg.reduceColors : 256;
+    }
+
+    const reduceColorsContainer = document.getElementById('reduce-colors-container');
+    if (reduceColorsContainer) {
+        reduceColorsContainer.classList.toggle('hidden', !localPaletteVal);
+    }
 
     // Toggles
     updateToggleUI(document.getElementById('loop-toggle'), seg.loopPlayback !== undefined ? seg.loopPlayback : true);

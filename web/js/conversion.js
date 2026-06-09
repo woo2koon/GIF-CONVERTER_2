@@ -82,7 +82,13 @@ function update_conversion_status(task_id, status, progress) {
         const totalProgress = targets.reduce((acc, s) => acc + (s.progress || 0), 0);
         const overallProgress = Math.round(totalProgress / targets.length);
         if (bar) bar.style.width = `${overallProgress}%`;
-        if (statusText) statusText.textContent = `인코딩 중... ${overallProgress}%`;
+        if (statusText) {
+            if (status && (status.includes('최적화') || status.includes('팔레트') || status.includes('준비'))) {
+                statusText.textContent = `${status} (${overallProgress}%)`;
+            } else {
+                statusText.textContent = `인코딩 중... ${overallProgress}%`;
+            }
+        }
     }
 
     const activeTasksProgress = Array.from(window.conversionResolvers.keys()).reduce((acc, tid) => {
@@ -358,7 +364,7 @@ async function processConversionQueue() {
         const startTime = seg.start;
         const endTime = seg.end;
         const fps = seg.fps || 24;
-        let resolution = seg.resolution || "중간 (720p)";
+        let resolution = seg.resolution || "원본";
         if (resolution === "직접 설정" && seg.customWidth && seg.customHeight) {
             resolution = `${seg.customWidth}:${seg.customHeight}`;
         } else if (resolution === "원본") {
@@ -374,6 +380,12 @@ async function processConversionQueue() {
             cropParams.keyframes = seg.keyframes;
         }
         const speed = seg.speed || 1.0;
+
+        // Gifsicle 최적화 관련 파라미터 준비
+        const optMethod = seg.optimizationMethod || 'none';
+        const lossyLevel = seg.lossyLevel !== undefined ? (seg.lossyLevel * 2) : 30;
+        const eliminateLocalPalette = seg.eliminateLocalPalette !== undefined ? seg.eliminateLocalPalette : true;
+        const reduceColors = seg.reduceColors !== undefined ? seg.reduceColors : 256;
 
         // Create promise for this specific task
         const conversionPromise = new Promise((resolve, reject) => {
@@ -396,7 +408,11 @@ async function processConversionQueue() {
             file.audioUrl,
             speed,
             format,
-            includeAudio
+            includeAudio,
+            optMethod,
+            lossyLevel,
+            eliminateLocalPalette,
+            reduceColors
         );
 
         // Handle completion
