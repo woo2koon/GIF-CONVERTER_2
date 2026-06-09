@@ -75,7 +75,9 @@ def download_update(download_url, progress_callback):
         req = urllib.request.Request(download_url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req) as response:
             with open(zip_path, 'wb') as f:
-                total_size = int(response.info().get('Content-Length', 0))
+                # Content-Length가 헤더에 없는 경우(또는 청크 전송 시) 기본 크기를 5MB로 가정하여 임시 진행률 계산
+                content_len_header = response.info().get('Content-Length')
+                total_size = int(content_len_header) if content_len_header else 5 * 1024 * 1024
                 downloaded = 0
                 block_size = 8192
                 while True:
@@ -85,6 +87,7 @@ def download_update(download_url, progress_callback):
                     downloaded += len(block)
                     f.write(block)
                     if total_size > 0:
+                        # 다운로드 크기가 total_size를 넘어서면 진행률이 99%를 넘지 않도록 안전 제한
                         percent = min(99, int((downloaded / total_size) * 99))
                         progress_callback(percent)
         
