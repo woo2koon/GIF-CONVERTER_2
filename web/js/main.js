@@ -680,7 +680,6 @@ async function checkUpdateOnStartup() {
     try {
         const res = await eel.check_app_update()();
         if (res && res.update_available) {
-            showToast(`새버전 v${res.latest_version} 업데이트가 가능합니다. 설정 창에서 업데이트를 진행해주세요.`, 10000);
             const badge = document.getElementById('app-update-version-status');
             if (badge) {
                 badge.textContent = `새 버전: v${res.latest_version}`;
