@@ -123,6 +123,8 @@ if exist "{os.path.join(root_dir, exe_name)}" (
     start "" "{os.path.join(root_dir, exe_name)}"
 ) else if exist "{os.path.join(root_dir, 'main.exe')}" (
     start "" "{os.path.join(root_dir, 'main.exe')}"
+) else if exist "{os.path.join(root_dir, 'main.py')}" (
+    start "" python "{os.path.join(root_dir, 'main.py')}"
 ) else (
     echo 재기동 대상을 찾을 수 없습니다. 수동으로 실행해주세요.
 )
