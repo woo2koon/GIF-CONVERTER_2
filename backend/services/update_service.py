@@ -32,7 +32,7 @@ def check_for_updates(current_version):
             # 404 (릴리즈가 아직 등록되지 않은 경우 등) 또는 오류 시 테스트용 mock 데이터 제공
             print(f"[Update check] API error: {http_err}. Using fallback mock data for testing.")
             latest_version = "1.6.0"
-            download_url = f"https://github.com/{GITHUB_REPO}/archive/refs/heads/main.zip"
+            download_url = f"https://codeload.github.com/{GITHUB_REPO}/zip/refs/heads/main"
             data = {"body": "GitHub Releases에 릴리즈가 등록되지 않아 테스트용 Mock 데이터를 임시 연동합니다."}
             
         # 버전 비교 (단순 문자열 비교 또는 스플릿 비교)
